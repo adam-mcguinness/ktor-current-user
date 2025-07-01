@@ -1,0 +1,66 @@
+<svg viewBox="0 0 800 600" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+        <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+            <polygon points="0 0, 10 3, 0 6" fill="#333" />
+        </marker>
+    </defs>
+
+    <!-- Title -->
+    <text x="400" y="30" text-anchor="middle" font-size="24" font-weight="bold" fill="#333">User Context Flow in Ktor Application</text>
+
+    <!-- Request Flow -->
+    <rect x="50" y="70" width="700" height="80" fill="#f0f0f0" stroke="#333" stroke-width="2" rx="5"/>
+    <text x="400" y="105" text-anchor="middle" font-size="16" font-weight="bold">HTTP Request with JWT Token</text>
+    <text x="400" y="130" text-anchor="middle" font-size="14">Authorization: Bearer eyJhbGc...</text>
+
+    <!-- Arrow -->
+    <line x1="400" y1="150" x2="400" y2="180" stroke="#333" stroke-width="2" marker-end="url(#arrowhead)"/>
+
+    <!-- Authentication Layer -->
+    <rect x="200" y="190" width="400" height="60" fill="#e3f2fd" stroke="#1976d2" stroke-width="2" rx="5"/>
+    <text x="400" y="215" text-anchor="middle" font-size="16" font-weight="bold">Ktor Authentication</text>
+    <text x="400" y="235" text-anchor="middle" font-size="14">JWT validation &amp; principal creation</text>
+
+    <!-- Arrow -->
+    <line x1="400" y1="250" x2="400" y2="280" stroke="#333" stroke-width="2" marker-end="url(#arrowhead)"/>
+
+    <!-- UserContext Plugin -->
+    <rect x="150" y="290" width="500" height="80" fill="#e8f5e9" stroke="#4caf50" stroke-width="2" rx="5"/>
+    <text x="400" y="315" text-anchor="middle" font-size="16" font-weight="bold">UserContext Plugin</text>
+    <text x="400" y="335" text-anchor="middle" font-size="14">Extracts user data from JWT claims</text>
+    <text x="400" y="355" text-anchor="middle" font-size="14">Sets CurrentUser context (ThreadLocal + Coroutine Context)</text>
+
+    <!-- Arrow -->
+    <line x1="400" y1="370" x2="400" y2="400" stroke="#333" stroke-width="2" marker-end="url(#arrowhead)"/>
+
+    <!-- Application Layers -->
+    <g transform="translate(0, 410)">
+        <!-- Route Layer -->
+        <rect x="50" y="0" width="200" height="60" fill="#fff3e0" stroke="#ff6f00" stroke-width="2" rx="5"/>
+        <text x="150" y="25" text-anchor="middle" font-size="14" font-weight="bold">Route Handler</text>
+        <text x="150" y="45" text-anchor="middle" font-size="12">CurrentUser available</text>
+
+        <!-- Service Layer -->
+        <rect x="300" y="0" width="200" height="60" fill="#fff3e0" stroke="#ff6f00" stroke-width="2" rx="5"/>
+        <text x="400" y="25" text-anchor="middle" font-size="14" font-weight="bold">Service Layer</text>
+        <text x="400" y="45" text-anchor="middle" font-size="12">CurrentUser available</text>
+
+        <!-- Repository Layer -->
+        <rect x="550" y="0" width="200" height="60" fill="#fff3e0" stroke="#ff6f00" stroke-width="2" rx="5"/>
+        <text x="650" y="25" text-anchor="middle" font-size="14" font-weight="bold">Repository Layer</text>
+        <text x="650" y="45" text-anchor="middle" font-size="12">CurrentUser available</text>
+
+        <!-- Arrows between layers -->
+        <line x1="250" y1="30" x2="300" y2="30" stroke="#333" stroke-width="2" marker-end="url(#arrowhead)"/>
+        <line x1="500" y1="30" x2="550" y2="30" stroke="#333" stroke-width="2" marker-end="url(#arrowhead)"/>
+    </g>
+
+    <!-- Code Example Box -->
+    <rect x="50" y="500" width="700" height="80" fill="#f5f5f5" stroke="#666" stroke-width="1" rx="5"/>
+    <text x="70" y="525" font-family="monospace" font-size="12" fill="#333">// Available in any layer without passing parameters:</text>
+    <text x="70" y="545" font-family="monospace" font-size="12" fill="#333">val userId = CurrentUser.id</text>
+    <text x="70" y="565" font-family="monospace" font-size="12" fill="#333">val email = CurrentUser.email</text>
+
+    <!-- Legend -->
+    <text x="650" y="440" font-size="12" font-weight="bold" fill="#666">No parameter passing needed!</text>
+</svg>
