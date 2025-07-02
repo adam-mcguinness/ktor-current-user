@@ -24,12 +24,14 @@ jobs:
 
       - name: Publish to Maven Central
         env:
+          RELEASE_VERSION: ${{ github.ref_name }}
           ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.ORG_GRADLE_PROJECT_MAVENCENTRALUSERNAME }}
           ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.ORG_GRADLE_PROJECT_MAVENCENTRALPASSWORD }}
           ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.ORG_GRADLE_PROJECT_SIGNINGINMEMORYKEYPASSWORD || '' }}
         run: |
-          # Extract version from tag (removes 'v' prefix if present)
-          VERSION=${GITHUB_REF_NAME#v}
+          # Remove 'v' prefix if present
+          export RELEASE_VERSION=${GITHUB_REF_NAME#v}
+          echo "Publishing version: $RELEASE_VERSION"
           
           # Decode the GPG key from base64 and export it
           export ORG_GRADLE_PROJECT_signingInMemoryKey=$(echo "${{ secrets.ORG_GRADLE_PROJECT_SIGNINGINMEMORYKEY }}" | base64 --decode)

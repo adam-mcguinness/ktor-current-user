@@ -8,7 +8,7 @@ plugins {
 }
 
 group = "com.roastmycode"
-version = "0.0.0-SNAPSHOT"
+version = System.getenv("RELEASE_VERSION") ?: "0.0.0-SNAPSHOT"
 
 repositories {
     mavenCentral()
