@@ -1,6 +1,5 @@
 package com.roastmycode.ktor.currentuser
 
-import io.ktor.server.auth.jwt.*
 import kotlin.reflect.KProperty
 
 /**

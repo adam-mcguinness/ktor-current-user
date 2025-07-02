@@ -1,7 +1,6 @@
 package com.roastmycode.ktor.currentuser
 
 import com.auth0.jwt.interfaces.Payload
-import io.ktor.server.auth.*
 import io.ktor.server.auth.jwt.*
 
 /**
@@ -10,18 +9,24 @@ import io.ktor.server.auth.jwt.*
 internal sealed class PropertyMapping {
     abstract val propertyName: String
     abstract fun extract(payloadMap: Map<String, Any?>): Any?
-}
-
-/**
- * Simple property mapping for the DSL
- */
-internal class SimplePropertyMapping(
-    override val propertyName: String,
-    val claimPath: String,
-    val targetType: kotlin.reflect.KClass<*>
-) : PropertyMapping() {
-    override fun extract(payloadMap: Map<String, Any?>): Any? {
-        // Security: Validate claim path to prevent injection attacks
+    
+    /**
+     * Common function to validate claim paths and prevent security issues
+     */
+    private fun validateClaimPath(path: String) {
+        if (path.isEmpty() || path.length > 500) {
+            throw UserContextExtractionException("Invalid claim path length: ${path.length}")
+        }
+        // Prevent path traversal attempts
+        if (path.contains("..") || path.contains("//")) {
+            throw UserContextExtractionException("Path traversal attempt detected: $path")
+        }
+    }
+    
+    /**
+     * Common function to traverse claim paths in payload maps
+     */
+    protected fun traverseClaimPath(payloadMap: Map<String, Any?>, claimPath: String): Any? {
         validateClaimPath(claimPath)
         
         val parts = claimPath.split(".")
@@ -47,17 +52,21 @@ internal class SimplePropertyMapping(
             }
         }
         
-        return convertToType(current, targetType)
+        return current
     }
-    
-    private fun validateClaimPath(path: String) {
-        if (path.isEmpty() || path.length > 500) {
-            throw UserContextExtractionException("Invalid claim path length: ${path.length}")
-        }
-        // Prevent path traversal attempts
-        if (path.contains("..") || path.contains("//")) {
-            throw UserContextExtractionException("Path traversal attempt detected: $path")
-        }
+}
+
+/**
+ * Simple property mapping for the DSL
+ */
+internal class SimplePropertyMapping(
+    override val propertyName: String,
+    private val claimPath: String,
+    private val targetType: kotlin.reflect.KClass<*>
+) : PropertyMapping() {
+    override fun extract(payloadMap: Map<String, Any?>): Any? {
+        val current = traverseClaimPath(payloadMap, claimPath)
+        return convertToType(current, targetType)
     }
     
     private fun convertToType(value: Any?, targetType: kotlin.reflect.KClass<*>): Any? {
@@ -77,8 +86,8 @@ internal class SimplePropertyMapping(
                     is Number -> {
                         val intValue = value.toInt()
                         // Security: Validate reasonable integer ranges
-                        if (intValue < 0 || intValue > Int.MAX_VALUE) {
-                            throw IllegalArgumentException("Integer value out of valid range: $intValue")
+                        if (intValue < 0) {
+                            throw IllegalArgumentException("Negative integer values not allowed: $intValue")
                         }
                         intValue
                     }
@@ -132,55 +141,18 @@ internal class SimplePropertyMapping(
  */
 internal class SerializablePropertyMapping(
     override val propertyName: String,
-    val claimPath: String,
-    val targetType: kotlin.reflect.KClass<*>
+    private val claimPath: String
 ) : PropertyMapping() {
     override fun extract(payloadMap: Map<String, Any?>): Any? {
-        // Security: Validate claim path to prevent injection attacks (same as SimplePropertyMapping)
-        validateClaimPath(claimPath)
-        
-        val parts = claimPath.split(".")
-        var current: Any? = payloadMap
-        
-        // Security: Limit traversal depth to prevent DoS
-        if (parts.size > 10) {
-            throw UserContextExtractionException("Claim path too deep: ${parts.size} levels")
-        }
-        
-        for (part in parts) {
-            // Security: Validate each path component
-            if (part.isEmpty() || part.length > 100) {
-                throw UserContextExtractionException("Invalid claim path component: '$part'")
-            }
-            if (!part.matches(Regex("^[a-zA-Z_][a-zA-Z0-9_-]*$")) && !part.startsWith("https://")) {
-                throw UserContextExtractionException("Invalid claim path format: '$part'")
-            }
-            
-            current = when (current) {
-                is Map<*, *> -> current[part]
-                else -> return null
-            }
-        }
-        
-        if (current == null) return null
+        val current = traverseClaimPath(payloadMap, claimPath) ?: return null
         
         // For serializable objects, we return the raw data
-        // The user will need to handle deserialization in their code
+        // The user will need to handle deserialization in their code  
         return when (current) {
             is Map<*, *> -> current
             is String -> current
             is List<*> -> current
             else -> current
-        }
-    }
-    
-    private fun validateClaimPath(path: String) {
-        if (path.isEmpty() || path.length > 500) {
-            throw UserContextExtractionException("Invalid claim path length: ${path.length}")
-        }
-        // Prevent path traversal attempts
-        if (path.contains("..") || path.contains("//")) {
-            throw UserContextExtractionException("Path traversal attempt detected: $path")
         }
     }
 }
@@ -202,7 +174,7 @@ class ConfigurableJwtExtractor(
         // Extract core properties using new DSL
         val userId = try {
             val userIdStr = extractUserIdNew(payloadMap) ?: throw UserContextExtractionException("No userId claim found in JWT")
-            val userIdInt = userIdStr.toString().toIntOrNull() ?: throw UserContextExtractionException("userId claim is not a valid integer")
+            val userIdInt = userIdStr.toIntOrNull() ?: throw UserContextExtractionException("userId claim is not a valid integer")
             // Security: Validate userId is positive
             if (userIdInt <= 0) {
                 throw UserContextExtractionException("userId must be positive: $userIdInt")
@@ -214,7 +186,7 @@ class ConfigurableJwtExtractor(
         
         val email = extractEmailNew(payloadMap)?.let { emailValue ->
             // Security: Validate email format and length
-            val emailStr = emailValue.toString()
+            val emailStr = emailValue
             if (emailStr.length > 254) { // RFC 5321 limit
                 throw UserContextExtractionException("Email address too long: ${emailStr.length} characters")
             }
@@ -312,8 +284,7 @@ class ConfigurableJwtExtractor(
     }
     
     private fun extractRolesNew(payloadMap: Map<String, Any?>): Set<String>? {
-        val roles = config.rolesMapping?.extract(payloadMap)
-        return when (roles) {
+        return when (val roles = config.rolesMapping?.extract(payloadMap)) {
             is List<*> -> {
                 val stringRoles = roles.filterIsInstance<String>()
                 // Security: Validate role names and count

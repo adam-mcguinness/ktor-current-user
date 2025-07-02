@@ -159,7 +159,7 @@ class UserContextExtractionConfiguration {
             when (value) {
                 is ObjectMapping -> objectMappings["userMetadata"] = value
                 is SerializableProperty<*> -> {
-                    val mapping = SerializablePropertyMapping("userMetadata", value.claimPath, value.type)
+                    val mapping = SerializablePropertyMapping("userMetadata", value.claimPath)
                     customProperties.add(mapping)
                 }
             }
@@ -173,7 +173,7 @@ class UserContextExtractionConfiguration {
             when (value) {
                 is ObjectMapping -> objectMappings["appMetadata"] = value
                 is SerializableProperty<*> -> {
-                    val mapping = SerializablePropertyMapping("appMetadata", value.claimPath, value.type)
+                    val mapping = SerializablePropertyMapping("appMetadata", value.claimPath)
                     customProperties.add(mapping)
                 }
             }
