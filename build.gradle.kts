@@ -31,8 +31,6 @@ mavenPublishing {
     publishToMavenCentral(com.vanniktech.maven.publish.SonatypeHost.CENTRAL_PORTAL)
     signAllPublications()
 
-    coordinates("com.roastmycode", "ktor-current-user", version.toString())
-
     pom {
         name.set("Ktor Current User")
         description.set("A Ktor plugin that provides thread-safe user context management for authenticated requests")
