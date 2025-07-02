@@ -37,4 +37,4 @@ jobs:
           export ORG_GRADLE_PROJECT_signingInMemoryKey=$(echo "${{ secrets.ORG_GRADLE_PROJECT_SIGNINGINMEMORYKEY }}" | base64 --decode)
           
           # Publish with version override
-          ./gradlew publishAllPublicationsToMavenCentralRepository --no-daemon -Pversion=$VERSION
+          ./gradlew publishAllPublicationsToMavenCentralRepository --no-daemon
