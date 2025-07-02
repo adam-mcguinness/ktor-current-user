@@ -36,5 +36,6 @@ jobs:
           # Decode the GPG key from base64 and export it
           export ORG_GRADLE_PROJECT_signingInMemoryKey=$(echo "${{ secrets.ORG_GRADLE_PROJECT_SIGNINGINMEMORYKEY }}" | base64 --decode)
           
-          # Publish with version override
+          # Uploads the artifacts to Maven Central and then publishes them
           ./gradlew publishAllPublicationsToMavenCentralRepository --no-daemon
+          ./gradlew publishToMavenCentral --no-configuration-cache
