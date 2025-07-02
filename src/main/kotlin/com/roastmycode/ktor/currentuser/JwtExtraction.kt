@@ -192,12 +192,11 @@ class ConfigurableJwtExtractor(
     private val config: UserContextExtractionConfiguration
 ) : UserContextExtractor {
 
-    override fun extract(principal: Principal): UserContext {
-        if (principal !is JWTPrincipal) {
-            throw UserContextExtractionException("Principal must be JWTPrincipal for JWT extraction")
-        }
+    override fun extract(principal: Any): UserContext {
+        val jwtPrincipal = principal as? JWTPrincipal
+            ?: throw UserContextExtractionException("Principal must be JWTPrincipal for JWT extraction")
 
-        val payload = principal.payload
+        val payload = jwtPrincipal.payload
         val payloadMap = payloadToMap(payload)
 
         // Extract core properties using new DSL

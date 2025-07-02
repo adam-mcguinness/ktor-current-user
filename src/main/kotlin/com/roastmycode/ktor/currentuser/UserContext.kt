@@ -1,6 +1,6 @@
 package com.roastmycode.ktor.currentuser
 
-import io.ktor.server.auth.*
+import io.ktor.server.auth.jwt.*
 import kotlin.reflect.KProperty
 
 /**
@@ -58,5 +58,5 @@ interface UserContextExtractor {
      * @return UserContext containing user information
      * @throws UserContextExtractionException if extraction fails
      */
-    fun extract(principal: Principal): UserContext
+    fun extract(principal: Any): UserContext
 }

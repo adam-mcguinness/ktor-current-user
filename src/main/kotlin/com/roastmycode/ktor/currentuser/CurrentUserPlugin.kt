@@ -23,7 +23,7 @@ val CurrentUserPlugin = createApplicationPlugin(
     val onError = pluginConfig.onExtractionError
 
     application.intercept(ApplicationCallPipeline.Call) {
-        val principal = call.authentication.principal<Principal>()
+        val principal = call.principal<Any>()
 
         when {
             principal != null -> {
