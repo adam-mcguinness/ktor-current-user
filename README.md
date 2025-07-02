@@ -116,7 +116,7 @@ dependencies {
 ### Requirements
 
 - Kotlin 1.8.0 or higher
-- Ktor 2.0.0 or higher
+- Ktor 3.0.0 or higher
 - Java 11 or higher
 
 
