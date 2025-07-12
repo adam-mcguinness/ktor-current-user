@@ -9,7 +9,6 @@ class UserContextSecurityTest {
     fun `test suspend function context propagation`() = runBlocking {
         val testUser = UserContext(
             userId = 123,
-            tenantId = 456,
             email = "test@example.com",
             roles = setOf("USER"),
             properties = emptyMap()
@@ -38,14 +37,14 @@ class UserContextSecurityTest {
 
     private suspend fun nestedSuspendFunction() {
         delay(1) // Force suspension point
-        assertEquals(456, CurrentUser.tenantId)
+        assertEquals(123, CurrentUser.id)
         assertTrue(CurrentUser.hasRole("USER"))
     }
 
     @Test
     fun `test context isolation between coroutines`() = runBlocking {
-        val user1 = UserContext(1, 10, "user1@example.com", setOf("USER"), emptyMap())
-        val user2 = UserContext(2, 20, "user2@example.com", setOf("ADMIN"), emptyMap())
+        val user1 = UserContext(1, "user1@example.com", setOf("USER"), emptyMap())
+        val user2 = UserContext(2, "user2@example.com", setOf("ADMIN"), emptyMap())
 
         val job1 = async {
             withUserContext(user1) {
@@ -85,7 +84,7 @@ class UserContextSecurityTest {
 
     @Test
     fun `test context cleanup after exception`() = runBlocking {
-        val testUser = UserContext(123, 456, "test@example.com", setOf("USER"), emptyMap())
+        val testUser = UserContext(123, "test@example.com", setOf("USER"), emptyMap())
 
         assertFailsWith<RuntimeException> {
             withUserContext(testUser) {
@@ -100,7 +99,7 @@ class UserContextSecurityTest {
 
     @Test
     fun `test memory cleanup in finally block`() = runBlocking {
-        val testUser = UserContext(123, 456, "test@example.com", setOf("USER"), emptyMap())
+        val testUser = UserContext(123, "test@example.com", setOf("USER"), emptyMap())
 
         withUserContext(testUser) {
             assertEquals(123, CurrentUser.id)

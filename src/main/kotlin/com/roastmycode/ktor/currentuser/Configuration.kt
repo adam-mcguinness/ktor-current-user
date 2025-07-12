@@ -5,6 +5,7 @@ package com.roastmycode.ktor.currentuser
  */
 data class StringProperty(val claimPath: String)
 data class IntProperty(val claimPath: String)
+data class LongProperty(val claimPath: String)
 data class BooleanProperty(val claimPath: String)
 data class ListProperty<T>(val claimPath: String, val elementType: kotlin.reflect.KClass<*>)
 data class SerializableProperty<T>(val claimPath: String, val type: kotlin.reflect.KClass<*>)
@@ -48,14 +49,6 @@ class ObjectMappingBuilder(private val claimPath: String) {
             }
         }
 
-    var tenantId: IntProperty? = null
-        set(value) {
-            field = value
-            if (value != null) {
-                properties["tenantId"] = SimplePropertyMapping("tenantId", "${claimPath}.${value.claimPath}", Int::class)
-            }
-        }
-
     var branchId: IntProperty? = null
         set(value) {
             field = value
@@ -81,6 +74,10 @@ class ObjectMappingBuilder(private val claimPath: String) {
         properties[name] = SimplePropertyMapping(name, "${claimPath}.${property.claimPath}", Int::class)
     }
 
+    fun setProperty(name: String, property: LongProperty) {
+        properties[name] = SimplePropertyMapping(name, "${claimPath}.${property.claimPath}", Long::class)
+    }
+
     fun setProperty(name: String, property: BooleanProperty) {
         properties[name] = SimplePropertyMapping(name, "${claimPath}.${property.claimPath}", Boolean::class)
     }
@@ -99,20 +96,15 @@ class UserContextExtractionConfiguration {
     // Core property mappings with defaults for standard JWT claims
     internal var userIdMapping: PropertyMapping? = SimplePropertyMapping("userId", "sub", String::class)
     internal var emailMapping: PropertyMapping? = SimplePropertyMapping("email", "email", String::class)
-    internal var tenantIdMapping: PropertyMapping? = null
     internal var rolesMapping: PropertyMapping? = SimplePropertyMapping("roles", "roles", List::class)
     
     // Object mappings for nested structures
     internal val objectMappings = mutableMapOf<String, ObjectMapping>()
 
-    /**
-     * Default tenant ID if not found in claims
-     */
-    var defaultTenantId: Int? = 1
-
     // Type-safe property assignment methods
     fun string(claimPath: String): StringProperty = StringProperty(claimPath)
     fun int(claimPath: String): IntProperty = IntProperty(claimPath)
+    fun long(claimPath: String): LongProperty = LongProperty(claimPath)
     fun boolean(claimPath: String): BooleanProperty = BooleanProperty(claimPath)
     inline fun <reified T> list(claimPath: String): ListProperty<T> = ListProperty(claimPath, T::class)
     inline fun <reified T> serializable(claimPath: String): SerializableProperty<T> = SerializableProperty(claimPath, T::class)
@@ -136,12 +128,6 @@ class UserContextExtractionConfiguration {
         set(value) {
             field = value
             emailMapping = value?.let { SimplePropertyMapping("email", it.claimPath, String::class) }
-        }
-
-    var tenantId: IntProperty? = null
-        set(value) {
-            field = value
-            tenantIdMapping = value?.let { SimplePropertyMapping("tenantId", it.claimPath, Int::class) }
         }
 
     var roles: ListProperty<String>? = null

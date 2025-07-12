@@ -1,5 +1,4 @@
 val kotlin_version: String by project
-val logback_version: String by project
 val ktor_version: String by project
 
 plugins {
@@ -19,12 +18,13 @@ dependencies {
     implementation("io.ktor:ktor-server-auth:$ktor_version")
     implementation("io.ktor:ktor-server-auth-jwt:$ktor_version")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
-    implementation("ch.qos.logback:logback-classic:$logback_version")
+    implementation("org.slf4j:slf4j-api:2.0.9")
 
     testImplementation(kotlin("test"))
     testImplementation("io.ktor:ktor-server-test-host:$ktor_version")
     testImplementation("io.mockk:mockk:1.13.14")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
+    testImplementation("ch.qos.logback:logback-classic:1.4.14")
 }
 
 mavenPublishing {

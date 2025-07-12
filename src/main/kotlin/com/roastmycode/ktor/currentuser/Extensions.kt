@@ -19,11 +19,6 @@ suspend fun <T> withUserContext(userContext: UserContext, block: suspend () -> T
  */
 fun UserContext.owns(resourceOwnerId: Int): Boolean = userId == resourceOwnerId
 
-/**
- * Check if user can access a tenant's resource
- */
-fun UserContext.canAccessTenant(resourceTenantId: Int): Boolean =
-    tenantId == resourceTenantId || hasRole("SUPER_ADMIN")
 
 /**
  * Require a specific role or throw

@@ -20,8 +20,7 @@ class OrderService {
         CurrentUser.context.requireRole("USER")
         return Order(
             items = request.items,
-            userId = CurrentUser.id,      // Automatically available!
-            tenantId = CurrentUser.tenantId
+            userId = CurrentUser.id      // Automatically available!
         )
     }
 }
@@ -147,7 +146,6 @@ install(CurrentUserPlugin) {
     extraction {
         userId = string("sub")
         email = string("email")
-        tenantId = int("tenant_id")
     }
 }
 ```
@@ -170,8 +168,7 @@ class UserService {
     fun getCurrentUserProfile(): UserProfile {
         return UserProfile(
             id = CurrentUser.id,
-            email = CurrentUser.email,
-            tenant = CurrentUser.tenantId
+            email = CurrentUser.email
         )
     }
 }
@@ -216,7 +213,6 @@ install(CurrentUserPlugin) {
         // Core properties - map directly to JWT claims
         userId = string("sub")
         email = string("email")
-        tenantId = int("tenant_id")
         roles = list<String>("roles")
     }
 }
@@ -235,7 +231,7 @@ install(CurrentUserPlugin) {
         
         // Define object structure inline
         appMetadata = object("app_metadata") {
-            tenantId = int("tenant")
+            organizationId = int("organization")
             branchId = int("branch")
             department = string("department")
             permissions = list<String>("permissions")
@@ -273,7 +269,7 @@ install(CurrentUserPlugin) {
         
         // Can mix with inline definitions
         appMetadata = object("app_metadata") {
-            tenantId = int("tenant")
+            organizationId = int("organization")
             branchId = int("branch")
         }
     }
@@ -290,7 +286,7 @@ install(CurrentUserPlugin) {
         
         // Auth0 namespaced claims
         appMetadata = object("https://myapp.com/app_metadata") {
-            tenantId = int("tenant")
+            organizationId = int("organization")
             branchId = int("branch") 
             department = string("dept")
             permissions = list<String>("permissions")
@@ -312,7 +308,6 @@ install(CurrentUserPlugin) {
         // Direct claims at JWT root level
         userId = string("sub")
         email = string("email")
-        tenantId = int("tenant_id")  // Direct claim
         roles = list<String>("roles")  // Direct claim
         
         // Nested claims in app_metadata
@@ -334,7 +329,6 @@ class UserService {
     fun getUserInfo() {
         // Core fields are always available
         val userId: Int = CurrentUser.id
-        val tenantId: Int = CurrentUser.tenantId
         val email: String = CurrentUser.email
         
         // Inline object properties accessible by name
@@ -356,16 +350,6 @@ class UserService {
 }
 ```
 
-### Type-Safe Property Types
-
-The DSL supports these property types:
-
-- `string(claimPath)` - Maps to String
-- `int(claimPath)` - Maps to Int  
-- `boolean(claimPath)` - Maps to Boolean
-- `list<T>(claimPath)` - Maps to List<T>
-- `serializable<T>(claimPath)` - Maps entire object to custom type T
-- `object(claimPath) { ... }` - Inline object definition
 
 ### Benefits of Serializable Objects
 
@@ -384,22 +368,17 @@ val email = userMetadata.email        // Not userMetadata.email_full
 val scope = userMetadata.scope        // Not userMetadata.user_scope
 ```
 
-### Default Values
+### Type-Safe Property Types
 
-You can set a default tenant ID if not found in claims:
+The DSL supports these property types:
 
-```kotlin
-install(CurrentUserPlugin) {
-    extraction {
-        userId = string("sub")
-        email = string("email")
-        tenantId = int("tenant_id")
-        
-        // Default tenant for single-tenant apps
-        defaultTenantId = 1
-    }
-}
-```
+- `string(claimPath)` - Maps to String
+- `int(claimPath)` - Maps to Int  
+- `long(claimPath)` - Maps to Long
+- `boolean(claimPath)` - Maps to Boolean
+- `list<T>(claimPath)` - Maps to List<T>
+- `serializable<T>(claimPath)` - Maps entire object to custom type T
+- `object(claimPath) { ... }` - Inline object definition
 
 
 ## Advanced Usage
@@ -432,7 +411,6 @@ import com.roastmycode.ktor.currentuser.withUserContext
 fun `test document service authorization`() = runBlocking {
     val testUser = UserContext(
         userId = 123,
-        tenantId = 456,
         email = "test@example.com",
         roles = setOf("USER"),
         properties = emptyMap()
@@ -453,7 +431,6 @@ fun `test document service authorization`() = runBlocking {
 fun `test admin service`() = runBlocking {
     val adminUser = UserContext(
         userId = 1,
-        tenantId = 100,
         email = "admin@example.com",
         roles = setOf("USER", "ADMIN"),
         properties = emptyMap()
@@ -534,7 +511,6 @@ class DocumentRepository {
 ### CurrentUser
 
 - `CurrentUser.id` - User ID
-- `CurrentUser.tenantId` - Tenant ID  
 - `CurrentUser.email` - Email address
 - `CurrentUser.roles` - User roles
 - `CurrentUser.hasRole(role)` - Check for specific role
@@ -545,6 +521,8 @@ class DocumentRepository {
 
 - `string(claimPath)` - Map string claim
 - `int(claimPath)` - Map integer claim
+- `long(claimPath)` - Map long claim
+- `boolean(claimPath)` - Map boolean claim
 - `list<T>(claimPath)` - Map list claim
 - `serializable<T>(claimPath)` - Map complex object
 - `object(claimPath) { ... }` - Inline object definition
@@ -571,12 +549,12 @@ For background tasks that need user context, explicitly pass it:
 ```kotlin
 // In your route or service
 val userId = CurrentUser.id
-val tenantId = CurrentUser.tenantId
+val orgId = CurrentUser.context.get<Int>("organizationId")
 
 // Launch background job with explicit context
 backgroundScope.launch {
     // CurrentUser NOT available here
-    processDataForUser(userId, tenantId)
+    processDataForUser(userId, orgId)
 }
 ```
 
@@ -600,6 +578,58 @@ backgroundScope.launch {
 ✅ **JWT Standards**: RFC 7519 compliant claim handling  
 ✅ **Email Validation**: RFC 5321 compliant email format checking  
 ✅ **Role Security**: Validates role format and prevents privilege escalation
+
+## Logging
+
+The plugin uses SLF4J for logging, allowing you to use any SLF4J-compatible logging implementation.
+
+### Enabling Logging
+
+Add a logging implementation to your dependencies:
+
+```kotlin
+dependencies {
+    // The plugin only depends on the API
+    implementation("com.roastmycode:ktor-current-user:1.0.0")
+    
+    // Add your preferred logging implementation
+    implementation("ch.qos.logback:logback-classic:1.4.14")
+}
+```
+
+Configure logging levels in your `logback.xml`:
+
+```xml
+<configuration>
+    <!-- Set plugin logging to DEBUG to see detailed extraction info -->
+    <logger name="com.roastmycode.ktor.currentuser" level="DEBUG"/>
+    
+    <!-- Or set specific components -->
+    <logger name="com.roastmycode.ktor.currentuser.CurrentUserPlugin" level="DEBUG"/>
+    <logger name="com.roastmycode.ktor.currentuser.ConfigurableJwtExtractor" level="TRACE"/>
+    
+    <root level="INFO">
+        <appender-ref ref="STDOUT"/>
+    </root>
+</configuration>
+```
+
+### Log Levels
+
+- **TRACE**: Detailed JWT payload inspection, property extraction attempts
+- **DEBUG**: User context extraction, principal processing, configuration details
+- **INFO**: (Currently no INFO logs)
+- **WARN**: Authentication rejections, missing required claims
+- **ERROR**: Extraction failures, invalid JWT data
+
+### Example Log Output
+
+```
+12:34:56.789 [eventLoopGroupProxy-4-1] DEBUG c.r.k.c.CurrentUserPlugin - Processing authenticated request with principal type: JWTPrincipal
+12:34:56.790 [eventLoopGroupProxy-4-1] DEBUG c.r.k.c.ConfigurableJwtExtractor - Starting JWT extraction from principal type: JWTPrincipal
+12:34:56.791 [eventLoopGroupProxy-4-1] DEBUG c.r.k.c.ConfigurableJwtExtractor - Successfully extracted UserContext: userId=123, email=user@example.com, roles=2, additionalProps=3
+12:34:56.792 [eventLoopGroupProxy-4-1] DEBUG c.r.k.c.CurrentUserPlugin - Extracted user context: userId=123, username=null
+```
 
 ## FAQ
 

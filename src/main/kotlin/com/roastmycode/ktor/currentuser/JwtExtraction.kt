@@ -2,6 +2,7 @@ package com.roastmycode.ktor.currentuser
 
 import com.auth0.jwt.interfaces.Payload
 import io.ktor.server.auth.jwt.*
+import org.slf4j.LoggerFactory
 
 /**
  * Base class for property mapping implementations
@@ -101,6 +102,25 @@ internal class SimplePropertyMapping(
                     }
                     else -> throw IllegalArgumentException("Cannot convert ${value::class.simpleName} to Int")
                 }
+                Long::class -> when (value) {
+                    is Number -> {
+                        val longValue = value.toLong()
+                        // Security: Validate reasonable long ranges
+                        if (longValue < 0) {
+                            throw IllegalArgumentException("Negative long values not allowed: $longValue")
+                        }
+                        longValue
+                    }
+                    is String -> {
+                        val longValue = value.toLongOrNull() 
+                            ?: throw NumberFormatException("Cannot convert '$value' to long")
+                        if (longValue < 0) {
+                            throw IllegalArgumentException("Negative long values not allowed: $longValue")
+                        }
+                        longValue
+                    }
+                    else -> throw IllegalArgumentException("Cannot convert ${value::class.simpleName} to Long")
+                }
                 Boolean::class -> when (value) {
                     is Boolean -> value
                     is String -> when (value.lowercase()) {
@@ -163,13 +183,18 @@ internal class SerializablePropertyMapping(
 class ConfigurableJwtExtractor(
     private val config: UserContextExtractionConfiguration
 ) : UserContextExtractor {
+    
+    private val logger = LoggerFactory.getLogger(ConfigurableJwtExtractor::class.java)
 
     override fun extract(principal: Any): UserContext {
+        logger.debug("Starting JWT extraction from principal type: {}", principal::class.simpleName)
+        
         val jwtPrincipal = principal as? JWTPrincipal
             ?: throw UserContextExtractionException("Principal must be JWTPrincipal for JWT extraction")
 
         val payload = jwtPrincipal.payload
         val payloadMap = payloadToMap(payload)
+        logger.trace("Extracted JWT payload with {} claims", payloadMap.size)
 
         // Extract core properties using new DSL
         val userId = try {
@@ -196,12 +221,6 @@ class ConfigurableJwtExtractor(
             emailStr
         } ?: throw UserContextExtractionException("No email claim found in JWT") 
         
-        val tenantId = try {
-            extractTenantIdNew(payloadMap) ?: config.defaultTenantId ?: throw UserContextExtractionException("No tenantId claim found in JWT and no default configured")
-        } catch (e: NumberFormatException) {
-            throw UserContextExtractionException("tenantId claim cannot be converted to integer: ${e.message}", e)
-        }
-        
         val roles = extractRolesNew(payloadMap) ?: emptySet()
 
         // Extract additional properties using object mappings
@@ -218,14 +237,15 @@ class ConfigurableJwtExtractor(
                             additionalProperties[propName] = value  // Also add to root level
                         }
                     } catch (e: Exception) {
-                        // Log property extraction error but continue with other properties
+                        logger.debug("Failed to extract property '{}' for object '{}': {}", propName, objectName, e.message)
                     }
                 }
                 if (objectProps.isNotEmpty()) {
                     additionalProperties[objectName] = objectProps
+                    logger.trace("Extracted object '{}' with {} properties", objectName, objectProps.size)
                 }
             } catch (e: Exception) {
-                // Log object mapping error but continue with other objects
+                logger.debug("Failed to extract object mapping '{}': {}", objectName, e.message)
             }
         }
         
@@ -234,19 +254,24 @@ class ConfigurableJwtExtractor(
             try {
                 mapping.extract(payloadMap)?.let { value ->
                     additionalProperties[mapping.propertyName] = value
+                    logger.trace("Extracted custom property '{}'", mapping.propertyName)
                 }
             } catch (e: Exception) {
-                // Log serializable property extraction error but continue
+                logger.debug("Failed to extract custom property '{}': {}", mapping.propertyName, e.message)
             }
         }
 
-        return UserContext(
+        val userContext = UserContext(
             userId = userId,
-            tenantId = tenantId,
             email = email,
             roles = roles,
             properties = additionalProperties
         )
+        
+        logger.debug("Successfully extracted UserContext: userId={}, email={}, roles={}, additionalProps={}", 
+            userId, email, roles.size, additionalProperties.size)
+        
+        return userContext
     }
 
     private fun payloadToMap(payload: Payload): Map<String, Any?> {
@@ -277,10 +302,6 @@ class ConfigurableJwtExtractor(
     
     private fun extractEmailNew(payloadMap: Map<String, Any?>): String? {
         return config.emailMapping?.extract(payloadMap) as? String
-    }
-    
-    private fun extractTenantIdNew(payloadMap: Map<String, Any?>): Int? {
-        return config.tenantIdMapping?.extract(payloadMap) as? Int
     }
     
     private fun extractRolesNew(payloadMap: Map<String, Any?>): Set<String>? {

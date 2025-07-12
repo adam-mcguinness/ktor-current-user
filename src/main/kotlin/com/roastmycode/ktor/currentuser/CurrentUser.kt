@@ -28,7 +28,6 @@ object CurrentUser {
 
     // Convenience properties
     val id: Int get() = context.userId
-    val tenantId: Int get() = context.tenantId
     val email: String get() = context.email
     val roles: Set<String> get() = context.roles
 
@@ -39,7 +38,6 @@ object CurrentUser {
     
     // Authorization convenience methods (delegating to extension functions)
     fun owns(resourceOwnerId: Int) = context.owns(resourceOwnerId)
-    fun canAccessTenant(resourceTenantId: Int) = context.canAccessTenant(resourceTenantId)
     fun requireRole(role: String, message: String = "Missing required role: $role") = context.requireRole(role, message)
     fun requireAnyRole(vararg roles: String, message: String = "Missing required roles: ${roles.joinToString()}") = context.requireAnyRole(*roles, message = message)
     fun requireOwnership(resourceOwnerId: Int, message: String = "You don't own this resource") = context.requireOwnership(resourceOwnerId, message)

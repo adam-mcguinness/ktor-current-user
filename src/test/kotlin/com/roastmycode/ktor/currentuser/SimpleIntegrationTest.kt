@@ -9,14 +9,12 @@ class SimpleIntegrationTest {
     fun `test UserContext data class creation`() {
         val userContext = UserContext(
             userId = 123,
-            tenantId = 456,
             email = "test@example.com",
             roles = setOf("USER", "ADMIN"),
             properties = mapOf("custom" to "value")
         )
 
         assertEquals(123, userContext.userId)
-        assertEquals(456, userContext.tenantId)
         assertEquals("test@example.com", userContext.email)
         assertEquals(setOf("USER", "ADMIN"), userContext.roles)
         assertEquals("value", userContext.properties["custom"])
@@ -26,7 +24,6 @@ class SimpleIntegrationTest {
     fun `test UserContext convenience methods`() {
         val userContext = UserContext(
             userId = 123,
-            tenantId = 456,
             email = "test@example.com",
             roles = setOf("USER", "ADMIN"),
             properties = emptyMap()
@@ -44,7 +41,6 @@ class SimpleIntegrationTest {
     fun `test UserContext requires role throws on missing role`() {
         val userContext = UserContext(
             userId = 123,
-            tenantId = 456,
             email = "test@example.com",
             roles = setOf("USER"),
             properties = emptyMap()
@@ -63,7 +59,6 @@ class SimpleIntegrationTest {
     fun `test withUserContext sets and cleans up context`() = runBlocking {
         val testUser = UserContext(
             userId = 789,
-            tenantId = 101,
             email = "context@test.com",
             roles = setOf("TEST"),
             properties = emptyMap()
@@ -76,7 +71,6 @@ class SimpleIntegrationTest {
             // Context should be available inside block
             assertTrue(CurrentUser.isAuthenticated)
             assertEquals(789, CurrentUser.id)
-            assertEquals(101, CurrentUser.tenantId)
             assertEquals("context@test.com", CurrentUser.email)
             assertTrue(CurrentUser.hasRole("TEST"))
         }
@@ -90,16 +84,12 @@ class SimpleIntegrationTest {
         val config = UserContextExtractionConfiguration().apply {
             userId = string("sub")
             email = string("email")
-            tenantId = int("tenant_id")
             roles = list<String>("roles")
-            defaultTenantId = 999
         }
 
         assertNotNull(config.userIdMapping)
         assertNotNull(config.emailMapping)
-        assertNotNull(config.tenantIdMapping)
         assertNotNull(config.rolesMapping)
-        assertEquals(999, config.defaultTenantId)
     }
 
     @Test
@@ -108,11 +98,13 @@ class SimpleIntegrationTest {
         
         val stringProp = config.string("test_claim")
         val intProp = config.int("number_claim")
+        val longProp = config.long("long_claim")
         val boolProp = config.boolean("flag_claim")
         val listProp = config.list<String>("list_claim")
 
         assertEquals("test_claim", stringProp.claimPath)
         assertEquals("number_claim", intProp.claimPath)
+        assertEquals("long_claim", longProp.claimPath)
         assertEquals("flag_claim", boolProp.claimPath)
         assertEquals("list_claim", listProp.claimPath)
     }

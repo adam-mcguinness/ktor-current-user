@@ -7,7 +7,6 @@ import kotlin.reflect.KProperty
  */
 data class UserContext(
     val userId: Int,
-    val tenantId: Int,
     val email: String,
     val roles: Set<String> = emptySet(),
     val properties: Map<String, Any?> = emptyMap()
