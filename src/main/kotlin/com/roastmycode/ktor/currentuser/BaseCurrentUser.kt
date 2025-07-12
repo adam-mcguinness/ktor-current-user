@@ -120,7 +120,7 @@ abstract class BaseCurrentUser {
     /**
      * Get a property value by name
      */
-    fun <T> getProperty(name: String): T? = context?.getProperty(name)
+    inline fun <reified T> getProperty(name: String): T? = context?.get(name)
     
     /**
      * Property delegate implementation
