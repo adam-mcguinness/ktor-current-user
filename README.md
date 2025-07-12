@@ -380,6 +380,135 @@ The DSL supports these property types:
 - `serializable<T>(claimPath)` - Maps entire object to custom type T
 - `object(claimPath) { ... }` - Inline object definition
 
+## Custom Properties
+
+The plugin provides two ways to work with user properties:
+
+### Using the Default CurrentUser (Standard Properties)
+
+For simple use cases with standard JWT claims (userId, email, roles), you can use the default `CurrentUser` object:
+
+```kotlin
+install(CurrentUserPlugin) {
+    extraction {
+        userId = string("sub")
+        email = string("email")
+        roles = list<String>("roles")
+    }
+}
+
+// Access standard properties
+val userId = CurrentUser.id
+val email = CurrentUser.email
+val roles = CurrentUser.roles
+```
+
+### Creating a Custom CurrentUser (Custom Properties)
+
+For applications that need custom JWT claims, you can create your own CurrentUser object by extending `BaseCurrentUser`:
+
+```kotlin
+// Define your custom CurrentUser with typed properties
+object MyCurrentUser : BaseCurrentUser() {
+    val userId by string()
+    val customClaim by string()
+    val department by typed<Department>()
+    val isAdmin by boolean()
+    val permissions by typed<List<String>>()
+    val organizationId by int()
+}
+
+// Configure the plugin to use your custom CurrentUser
+install(CurrentUserPlugin) {
+    extraction {
+        // Map property names to JWT claim paths
+        userId = "sub"
+        customClaim = "custom_claim_name"
+        department = "dept"
+        isAdmin = "is_admin"
+        permissions = "user_permissions"
+        organizationId = "org_id"
+    }
+    
+    // Tell the plugin to use your custom CurrentUser
+    currentUser = MyCurrentUser
+}
+
+// Now you can access your custom properties with full type safety
+fun someService() {
+    val userId = MyCurrentUser.userId           // String
+    val dept = MyCurrentUser.department         // Department
+    val isAdmin = MyCurrentUser.isAdmin         // Boolean
+    val perms = MyCurrentUser.permissions      // List<String>
+    val orgId = MyCurrentUser.organizationId   // Int
+    
+    if (MyCurrentUser.isAdmin) {
+        // Admin-only logic
+    }
+}
+```
+
+#### Benefits of Custom CurrentUser
+
+- **Type Safety**: All properties are strongly typed at compile time
+- **IDE Support**: Full autocomplete and refactoring support
+- **Clean API**: Access properties directly without casting
+- **Flexibility**: Add exactly the properties your application needs
+- **No Boilerplate**: Property delegates handle all the extraction logic
+
+#### Property Delegate Types
+
+When creating custom CurrentUser objects, you can use these property delegates:
+
+- `string()` / `stringOrNull()` - For String properties
+- `int()` / `intOrNull()` - For Int properties  
+- `long()` / `longOrNull()` - For Long properties
+- `boolean()` / `booleanOrNull()` - For Boolean properties
+- `typed<T>()` / `typedOrNull<T>()` - For custom types (must be serializable)
+
+The non-nullable versions will throw `UnauthorizedException` if the property is missing, while the nullable versions return null.
+
+#### Example: Multi-Tenant SaaS Application
+
+```kotlin
+// Custom CurrentUser for a multi-tenant SaaS app
+object CurrentUser : BaseCurrentUser() {
+    val userId by string()
+    val tenantId by string()
+    val subscription by typed<SubscriptionPlan>()
+    val features by typed<Set<String>>()
+    val apiQuota by intOrNull()  // Optional property
+}
+
+install(CurrentUserPlugin) {
+    extraction {
+        userId = "sub"
+        tenantId = "tenant_id"
+        subscription = "subscription_plan"
+        features = "enabled_features"
+        apiQuota = "api_quota"
+    }
+    currentUser = CurrentUser
+}
+
+// Use throughout your application
+class TenantService {
+    fun getTenantData(): TenantData {
+        // Automatic tenant isolation
+        return tenantRepository.findByTenantId(CurrentUser.tenantId)
+    }
+    
+    fun checkFeature(feature: String): Boolean {
+        return CurrentUser.features.contains(feature)
+    }
+    
+    fun checkApiQuota(): Boolean {
+        val quota = CurrentUser.apiQuota ?: 1000  // Default if not set
+        return apiUsage.getUsage(CurrentUser.userId) < quota
+    }
+}
+```
+
 
 ## Advanced Usage
 
