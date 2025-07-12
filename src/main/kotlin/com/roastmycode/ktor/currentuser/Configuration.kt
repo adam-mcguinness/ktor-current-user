@@ -100,6 +100,9 @@ class UserContextExtractionConfiguration {
     
     // Object mappings for nested structures
     internal val objectMappings = mutableMapOf<String, ObjectMapping>()
+    
+    // Property mappings for custom properties
+    internal val propertyMappings = mutableMapOf<String, String>()
 
     // Type-safe property assignment methods
     fun string(claimPath: String): StringProperty = StringProperty(claimPath)
@@ -167,6 +170,15 @@ class UserContextExtractionConfiguration {
 
     // Additional custom properties
     internal val customProperties = mutableListOf<PropertyMapping>()
+    
+    /**
+     * Generic property setter for custom properties using simple string mapping
+     * This allows syntax like: propertyName = "claimPath"
+     */
+    operator fun set(propertyName: String, claimPath: String) {
+        propertyMappings[propertyName] = claimPath
+        customProperties.add(SimplePropertyMapping(propertyName, claimPath, Any::class))
+    }
 }
 
 /**
@@ -197,6 +209,11 @@ class UserContextConfiguration {
      * Callback invoked when context extraction fails
      */
     var onExtractionError: ((Throwable) -> Unit)? = null
+    
+    /**
+     * Custom CurrentUser instance to use instead of the default
+     */
+    var currentUser: BaseCurrentUser? = null
 
     /**
      * Configure extraction using DSL

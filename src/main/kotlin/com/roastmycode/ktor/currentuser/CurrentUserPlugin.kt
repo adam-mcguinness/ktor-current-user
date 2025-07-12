@@ -24,6 +24,7 @@ val CurrentUserPlugin = createApplicationPlugin(
     val requireAuth = pluginConfig.requireAuthentication
     val onExtracted = pluginConfig.onContextExtracted
     val onError = pluginConfig.onExtractionError
+    val currentUserInstance = pluginConfig.currentUser ?: CurrentUser
 
     logger.debug("CurrentUserPlugin initialized with requireAuthentication: {}", requireAuth)
 
@@ -37,9 +38,9 @@ val CurrentUserPlugin = createApplicationPlugin(
                     val userContext = extractor.extract(principal)
                     logger.debug("Extracted user context: userId={}, email={}", userContext.userId, userContext.email)
                     onExtracted?.invoke(userContext)
-                    CurrentUser.set(userContext)
+                    currentUserInstance.set(userContext)
 
-                    withContext(CurrentUser.asContextElement()) {
+                    withContext(currentUserInstance.asContextElement()) {
                         proceed()
                     }
                 } catch (e: Exception) {
@@ -47,7 +48,7 @@ val CurrentUserPlugin = createApplicationPlugin(
                     onError?.invoke(e)
                     throw e
                 } finally {
-                    CurrentUser.set(null)
+                    currentUserInstance.set(null)
                     logger.trace("Cleared user context after request")
                 }
             }
