@@ -18,11 +18,18 @@ val CurrentUserPlugin = createApplicationPlugin(
     application.intercept(ApplicationCallPipeline.ApplicationPhase.Call) {
         logger.trace("Intercepting call")
         
-        withContext(
-            callThreadLocal.asContextElement(call) + 
-            configThreadLocal.asContextElement(config)
-        ) {
-            proceed()
+        try {
+            withContext(
+                callThreadLocal.asContextElement(call) + 
+                configThreadLocal.asContextElement(config)
+            ) {
+                proceed()
+            }
+        } finally {
+            // Clean up ThreadLocal to prevent memory leaks
+            logger.trace("Cleaning up ThreadLocal values")
+            callThreadLocal.remove()
+            configThreadLocal.remove()
         }
     }
 }
