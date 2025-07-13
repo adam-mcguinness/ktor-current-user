@@ -5,6 +5,10 @@ import io.ktor.server.auth.*
 import io.ktor.server.auth.jwt.*
 import kotlinx.serialization.InternalSerializationApi
 import kotlinx.serialization.serializer
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.buildJsonArray
 import kotlin.reflect.KProperty
 import kotlin.reflect.KClass
 import org.slf4j.LoggerFactory
@@ -54,17 +58,56 @@ object CurrentUser {
             throw AuthenticationRequiredException("No JWT principal found. Ensure the user is authenticated.")
         }
             
-        val appMetadata = principal.payload?.getClaim("app_metadata")?.asString()
-        if (appMetadata == null) {
+        val appMetadataClaim = principal.payload?.getClaim("app_metadata")
+        if (appMetadataClaim == null) {
             logger.error("JWT token missing 'app_metadata' claim")
             throw InvalidJwtException("app_metadata claim not found in JWT token.")
         }
         
+        // Handle both string and object formats
         return try {
-            logger.trace("Deserializing app_metadata: {}", appMetadata)
-            val result = getConfig().json.decodeFromString(klass.serializer() as kotlinx.serialization.KSerializer<T>, appMetadata)
-            logger.debug("Successfully deserialized app_metadata to {}", klass.simpleName)
-            result
+            when {
+                appMetadataClaim.isNull -> {
+                    logger.error("JWT token 'app_metadata' claim is null")
+                    throw InvalidJwtException("app_metadata claim is null in JWT token.")
+                }
+                appMetadataClaim.asString() != null -> {
+                    // It's already a JSON string
+                    val jsonString = appMetadataClaim.asString()!!
+                    logger.trace("Deserializing app_metadata from string: {}", jsonString)
+                    getConfig().json.decodeFromString(klass.serializer() as kotlinx.serialization.KSerializer<T>, jsonString)
+                }
+                else -> {
+                    // It's a JSON object, deserialize directly from the map
+                    val map = appMetadataClaim.asMap()
+                    val jsonObject = buildJsonObject {
+                        map.forEach { (key, value) ->
+                            when (value) {
+                                is String -> put(key, JsonPrimitive(value))
+                                is Number -> put(key, JsonPrimitive(value))
+                                is Boolean -> put(key, JsonPrimitive(value))
+                                is List<*> -> {
+                                    // Handle lists
+                                    val jsonArray = kotlinx.serialization.json.buildJsonArray {
+                                        value.forEach { item ->
+                                            when (item) {
+                                                is String -> add(JsonPrimitive(item))
+                                                is Number -> add(JsonPrimitive(item))
+                                                is Boolean -> add(JsonPrimitive(item))
+                                                else -> add(JsonPrimitive(item.toString()))
+                                            }
+                                        }
+                                    }
+                                    put(key, jsonArray)
+                                }
+                                else -> put(key, JsonPrimitive(value.toString()))
+                            }
+                        }
+                    }
+                    logger.trace("Deserializing app_metadata from object: {}", jsonObject)
+                    getConfig().json.decodeFromJsonElement(klass.serializer() as kotlinx.serialization.KSerializer<T>, jsonObject)
+                }
+            }
         } catch (e: Exception) {
             logger.error("Failed to deserialize app_metadata to {}: {}", klass.simpleName, e.message)
             throw MetadataDeserializationException(
@@ -85,11 +128,49 @@ object CurrentUser {
         val principal = getCall().principal<JWTPrincipal>()
             ?: throw AuthenticationRequiredException("No JWT principal found. Ensure the user is authenticated.")
             
-        val appMetadata = principal.payload?.getClaim("app_metadata")?.asString()
+        val appMetadataClaim = principal.payload?.getClaim("app_metadata")
             ?: throw InvalidJwtException("app_metadata claim not found in JWT token.")
         
+        // Handle both string and object formats
         return try {
-            config.json.decodeFromString(metadataClass.serializer() as kotlinx.serialization.KSerializer<Any>, appMetadata)
+            when {
+                appMetadataClaim.isNull -> {
+                    throw InvalidJwtException("app_metadata claim is null in JWT token.")
+                }
+                appMetadataClaim.asString() != null -> {
+                    // It's already a JSON string
+                    config.json.decodeFromString(metadataClass.serializer() as kotlinx.serialization.KSerializer<Any>, appMetadataClaim.asString()!!)
+                }
+                else -> {
+                    // It's a JSON object, deserialize directly from the map
+                    val map = appMetadataClaim.asMap()
+                    val jsonObject = buildJsonObject {
+                        map.forEach { (key, value) ->
+                            when (value) {
+                                is String -> put(key, JsonPrimitive(value))
+                                is Number -> put(key, JsonPrimitive(value))
+                                is Boolean -> put(key, JsonPrimitive(value))
+                                is List<*> -> {
+                                    // Handle lists
+                                    val jsonArray = buildJsonArray {
+                                        value.forEach { item ->
+                                            when (item) {
+                                                is String -> add(JsonPrimitive(item))
+                                                is Number -> add(JsonPrimitive(item))
+                                                is Boolean -> add(JsonPrimitive(item))
+                                                else -> add(JsonPrimitive(item.toString()))
+                                            }
+                                        }
+                                    }
+                                    put(key, jsonArray)
+                                }
+                                else -> put(key, JsonPrimitive(value.toString()))
+                            }
+                        }
+                    }
+                    config.json.decodeFromJsonElement(metadataClass.serializer() as kotlinx.serialization.KSerializer<Any>, jsonObject)
+                }
+            }
         } catch (e: Exception) {
             throw MetadataDeserializationException(
                 "Failed to deserialize app_metadata to ${metadataClass.simpleName}: ${e.message}", 
