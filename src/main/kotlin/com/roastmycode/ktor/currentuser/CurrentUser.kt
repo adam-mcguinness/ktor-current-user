@@ -1,150 +1,120 @@
 package com.roastmycode.ktor.currentuser
 
-import kotlinx.coroutines.asContextElement
+import io.ktor.server.application.*
+import io.ktor.server.auth.*
+import io.ktor.server.auth.jwt.*
+import kotlinx.serialization.InternalSerializationApi
+import kotlinx.serialization.serializer
+import kotlin.reflect.KProperty
+import kotlin.reflect.KClass
+import org.slf4j.LoggerFactory
 
+internal val callThreadLocal = ThreadLocal<ApplicationCall>()
+internal val configThreadLocal = ThreadLocal<CurrentUserConfiguration>()
+
+private val logger = LoggerFactory.getLogger("com.roastmycode.ktor.currentuser.CurrentUser")
 
 object CurrentUser {
-    private val contextThreadLocal = ThreadLocal<UserContext>()
-
-    /**
-     * Get the current user context
-     * @throws IllegalStateException if no user context is available
-     */
-    val context: UserContext
+    private fun getCall(): ApplicationCall {
+        return callThreadLocal.get()
+            ?: throw NoCallContextException("No ApplicationCall in context. Ensure CurrentUserPlugin is installed and you're accessing CurrentUser within a request context.")
+    }
+    
+    private fun getConfig(): CurrentUserConfiguration {
+        return configThreadLocal.get()
+            ?: throw NoCallContextException("No configuration in context. Ensure CurrentUserPlugin is installed properly.")
+    }
+    
+    val userId: String
         get() {
-            val ctx = contextOrNull
-            if (ctx == null) {
-                println("[CurrentUser] ERROR: Attempted to access context but it's NULL!")
-                throw IllegalStateException("No user context available. Ensure the request is authenticated.")
+            logger.debug("Accessing userId")
+            val principal = getCall().principal<JWTPrincipal>()
+            if (principal == null) {
+                logger.warn("No JWT principal found when accessing userId")
+                throw AuthenticationRequiredException("No JWT principal found. Ensure the user is authenticated.")
             }
-            println("[CurrentUser] Context accessed: User(id=${ctx.userId}, email=${ctx.email})")
-            return ctx
+            
+            val subject = principal.payload?.subject
+            if (subject == null) {
+                logger.error("JWT token missing required 'sub' claim")
+                throw InvalidJwtException("User ID (sub) claim not found in JWT token.")
+            }
+            
+            logger.debug("Retrieved userId: {}", subject)
+            return subject
         }
-
-    /**
-     * Get the current user context or null if not authenticated
-     */
-    val contextOrNull: UserContext?
-        get() {
-            val ctx = getCurrentContext()
-            println("[CurrentUser] contextOrNull accessed: ${ctx?.let { "User(id=${it.userId}, email=${it.email})" } ?: "NULL"}")
-            return ctx
-        }
-
-    /**
-     * Check if a user context exists
-     */
-    val isAuthenticated: Boolean
-        get() {
-            val isAuth = contextOrNull != null
-            println("[CurrentUser] isAuthenticated check: $isAuth")
-            return isAuth
-        }
-
-    // Convenience properties
-    val id: String get() {
-        println("[CurrentUser] id property accessed")
-        return context.userId
-    }
-    val tenantId: Int? get() {
-        println("[CurrentUser] tenantId property accessed")
-        return context.tenantId
-    }
-    val email: String? get() {
-        println("[CurrentUser] email property accessed")
-        return context.email
-    }
-    val roles: Set<String> get() {
-        println("[CurrentUser] roles property accessed")
-        return context.roles
-    }
-    val organizationId: Int? get() = context.organizationId
-    val branchId: Int? get() = context.branchId
-    val departmentId: String? get() = context.departmentId
-    val permissions: Set<String>? get() = context.permissions
-
-    // Convenience methods
-    fun hasRole(role: String): Boolean {
-        println("[CurrentUser] hasRole('$role') called")
-        val result = context.hasRole(role)
-        println("[CurrentUser] hasRole('$role') = $result")
-        return result
-    }
-    fun hasAnyRole(vararg roles: String) = context.hasAnyRole(*roles)
-    fun hasAllRoles(vararg roles: String) = context.hasAllRoles(*roles)
-    fun hasPermission(permission: String) = context.hasPermission(permission)
-    fun hasAnyPermission(vararg permissions: String) = context.hasAnyPermission(*permissions)
-    fun hasAllPermissions(vararg permissions: String) = context.hasAllPermissions(*permissions)
     
-    // Authorization convenience methods (delegating to extension functions)
-    fun owns(resourceOwnerId: Int): Boolean {
-        println("[CurrentUser] owns($resourceOwnerId) called")
-        val result = context.owns(resourceOwnerId)
-        println("[CurrentUser] owns($resourceOwnerId) = $result")
-        return result
-    }
-    fun owns(resourceOwnerId: String): Boolean {
-        println("[CurrentUser] owns($resourceOwnerId) called")
-        val result = context.owns(resourceOwnerId)
-        println("[CurrentUser] owns($resourceOwnerId) = $result")
-        return result
-    }
-    fun canAccessTenant(resourceTenantId: Int) = context.canAccessTenant(resourceTenantId)
-    fun requireRole(role: String, message: String = "Missing required role: $role") {
-        println("[CurrentUser] requireRole('$role') called")
-        context.requireRole(role, message)
-        println("[CurrentUser] requireRole('$role') passed")
-    }
-    fun requireAnyRole(vararg roles: String, message: String = "Missing required roles: ${roles.joinToString()}") = context.requireAnyRole(*roles, message = message)
-    fun requireOwnership(resourceOwnerId: Int, message: String = "You don't own this resource") = context.requireOwnership(resourceOwnerId, message)
-    fun requireOwnership(resourceOwnerId: String, message: String = "You don't own this resource") = context.requireOwnership(resourceOwnerId, message)
-
-    /**
-     * Execute a block with the current user context.
-     * Useful for avoiding multiple ThreadLocal lookups.
-     * Performance: Caches context to avoid repeated ThreadLocal access
-     */
-    inline fun <T> use(block: (UserContext) -> T): T {
-        val cachedContext = contextOrNull ?: throw IllegalStateException("No user context available. Ensure the request is authenticated.")
-        return block(cachedContext)
-    }
-
-    /**
-     * Execute a block with the current user context or return null
-     */
-    inline fun <T> useOrNull(block: (UserContext) -> T): T? {
-        return contextOrNull?.let(block)
-    }
-
-    /**
-     * Execute a block if authenticated, otherwise execute the else block
-     */
-    inline fun <T> ifAuthenticated(
-        block: (UserContext) -> T,
-        elseBlock: () -> T
-    ): T {
-        return contextOrNull?.let(block) ?: elseBlock()
-    }
-
-    // Internal methods for plugin use
-    internal fun set(context: UserContext?) {
-        println("[CurrentUser] Setting user context: ${context?.let { "User(id=${it.userId}, email=${it.email})" } ?: "NULL"}")
-        if (context != null) {
-            contextThreadLocal.set(context)
-        } else {
-            contextThreadLocal.remove()
+    @OptIn(InternalSerializationApi::class)
+    fun <T : Any> appMetadata(klass: KClass<T>): T {
+        logger.debug("Accessing appMetadata as {}", klass.simpleName)
+        
+        val principal = getCall().principal<JWTPrincipal>()
+        if (principal == null) {
+            logger.warn("No JWT principal found when accessing appMetadata")
+            throw AuthenticationRequiredException("No JWT principal found. Ensure the user is authenticated.")
+        }
+            
+        val appMetadata = principal.payload?.getClaim("app_metadata")?.asString()
+        if (appMetadata == null) {
+            logger.error("JWT token missing 'app_metadata' claim")
+            throw InvalidJwtException("app_metadata claim not found in JWT token.")
+        }
+        
+        return try {
+            logger.trace("Deserializing app_metadata: {}", appMetadata)
+            val result = getConfig().json.decodeFromString(klass.serializer() as kotlinx.serialization.KSerializer<T>, appMetadata)
+            logger.debug("Successfully deserialized app_metadata to {}", klass.simpleName)
+            result
+        } catch (e: Exception) {
+            logger.error("Failed to deserialize app_metadata to {}: {}", klass.simpleName, e.message)
+            throw MetadataDeserializationException(
+                "Failed to deserialize app_metadata to ${klass.simpleName}: ${e.message}", 
+                e
+            )
         }
     }
-
-    internal fun asContextElement() = contextThreadLocal.asContextElement()
     
-    /**
-     * Get current context from ThreadLocal
-     * ThreadLocal + asContextElement() ensures proper propagation across coroutines
-     */
-    private fun getCurrentContext(): UserContext? {
-        val ctx = contextThreadLocal.get()
-        // Don't log here to avoid infinite recursion with contextOrNull
-        return ctx
+    inline fun <reified T : Any> appMetadata(): T = appMetadata(T::class)
+    
+    @OptIn(InternalSerializationApi::class)
+    internal fun getMetadata(): Any {
+        val config = getConfig()
+        val metadataClass = config.metadataClass
+            ?: throw IllegalStateException("No metadata class configured. Use metadata<T>() in plugin configuration.")
+            
+        val principal = getCall().principal<JWTPrincipal>()
+            ?: throw AuthenticationRequiredException("No JWT principal found. Ensure the user is authenticated.")
+            
+        val appMetadata = principal.payload?.getClaim("app_metadata")?.asString()
+            ?: throw InvalidJwtException("app_metadata claim not found in JWT token.")
+        
+        return try {
+            config.json.decodeFromString(metadataClass.serializer() as kotlinx.serialization.KSerializer<Any>, appMetadata)
+        } catch (e: Exception) {
+            throw MetadataDeserializationException(
+                "Failed to deserialize app_metadata to ${metadataClass.simpleName}: ${e.message}", 
+                e
+            )
+        }
+    }
+    
+    internal inline fun <reified T> get(propertyName: String): T {
+        logger.debug("Accessing property '{}' as {}", propertyName, T::class.simpleName)
+        
+        val metadata = getMetadata()
+        val property = metadata::class.members.find { it.name == propertyName }
+        if (property == null) {
+            logger.error("Property '{}' not found in metadata class {}", propertyName, metadata::class.simpleName)
+            throw IllegalArgumentException("Property '$propertyName' not found in metadata class ${metadata::class.simpleName}")
+        }
+        
+        return try {
+            val value = property.call(metadata) as T
+            logger.debug("Retrieved property '{}' with value: {}", propertyName, value)
+            value
+        } catch (e: Exception) {
+            logger.error("Failed to access property '{}': {}", propertyName, e.message)
+            throw CurrentUserException("Failed to access property '$propertyName': ${e.message}", e)
+        }
     }
 }
