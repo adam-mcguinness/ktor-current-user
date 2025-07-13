@@ -17,9 +17,20 @@ internal sealed class PropertyMapping {
         if (path.isEmpty() || path.length > 500) {
             throw UserContextExtractionException("Invalid claim path length: ${path.length}")
         }
-        // Prevent path traversal attempts
-        if (path.contains("..") || path.contains("//")) {
-            throw UserContextExtractionException("Path traversal attempt detected: $path")
+        
+        // Check if this is a URL-based claim (like Auth0 custom claims)
+        val isUrlClaim = path.startsWith("http://") || path.startsWith("https://")
+        
+        if (isUrlClaim) {
+            // For URL claims, just check for path traversal in the URL path part
+            if (path.contains("../")) {
+                throw UserContextExtractionException("Path traversal attempt detected: $path")
+            }
+        } else {
+            // For regular claims, check for path traversal attempts
+            if (path.contains("..") || path.contains("//")) {
+                throw UserContextExtractionException("Path traversal attempt detected: $path")
+            }
         }
     }
     
@@ -29,6 +40,15 @@ internal sealed class PropertyMapping {
     protected fun traverseClaimPath(payloadMap: Map<String, Any?>, claimPath: String): Any? {
         validateClaimPath(claimPath)
         
+        // Check if this is a URL-based claim (Auth0 custom claims)
+        val isUrlClaim = claimPath.startsWith("http://") || claimPath.startsWith("https://")
+        
+        if (isUrlClaim) {
+            // URL-based claims are direct keys in the payload, not nested
+            return payloadMap[claimPath]
+        }
+        
+        // For non-URL claims, support nested paths with dot notation
         val parts = claimPath.split(".")
         var current: Any? = payloadMap
         
@@ -39,14 +59,11 @@ internal sealed class PropertyMapping {
         
         for (part in parts) {
             // Security: Validate each path component
-            if (part.isEmpty() || part.length > 200) { // Increased for URL-based claims
+            if (part.isEmpty() || part.length > 200) {
                 throw UserContextExtractionException("Invalid claim path component: '$part'")
             }
-            // Allow URL-based claim paths (like https://api.lumisync.io/tenantId)
-            // Also allow regular claim names
-            val isValidClaimName = part.matches(Regex("^[a-zA-Z_][a-zA-Z0-9_-]*$"))
-            val isValidUrl = part.matches(Regex("^https?://[\\w.-]+(?:/[\\w.-]+)*$"))
-            if (!isValidClaimName && !isValidUrl) {
+            // Validate claim name format
+            if (!part.matches(Regex("^[a-zA-Z_][a-zA-Z0-9_-]*$"))) {
                 throw UserContextExtractionException("Invalid claim path format: '$part'")
             }
             
