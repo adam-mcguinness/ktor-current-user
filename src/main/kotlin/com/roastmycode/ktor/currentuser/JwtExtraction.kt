@@ -39,10 +39,14 @@ internal sealed class PropertyMapping {
         
         for (part in parts) {
             // Security: Validate each path component
-            if (part.isEmpty() || part.length > 100) {
+            if (part.isEmpty() || part.length > 200) { // Increased for URL-based claims
                 throw UserContextExtractionException("Invalid claim path component: '$part'")
             }
-            if (!part.matches(Regex("^[a-zA-Z_][a-zA-Z0-9_-]*$")) && !part.startsWith("https://")) {
+            // Allow URL-based claim paths (like https://api.lumisync.io/tenantId)
+            // Also allow regular claim names
+            val isValidClaimName = part.matches(Regex("^[a-zA-Z_][a-zA-Z0-9_-]*$"))
+            val isValidUrl = part.matches(Regex("^https?://[\\w.-]+(?:/[\\w.-]+)*$"))
+            if (!isValidClaimName && !isValidUrl) {
                 throw UserContextExtractionException("Invalid claim path format: '$part'")
             }
             
@@ -136,26 +140,6 @@ internal class SimplePropertyMapping(
     }
 }
 
-/**
- * Serializable property mapping for complex objects
- */
-internal class SerializablePropertyMapping(
-    override val propertyName: String,
-    private val claimPath: String
-) : PropertyMapping() {
-    override fun extract(payloadMap: Map<String, Any?>): Any? {
-        val current = traverseClaimPath(payloadMap, claimPath) ?: return null
-        
-        // For serializable objects, we return the raw data
-        // The user will need to handle deserialization in their code  
-        return when (current) {
-            is Map<*, *> -> current
-            is String -> current
-            is List<*> -> current
-            else -> current
-        }
-    }
-}
 
 /**
  * Configurable JWT extractor that uses the provided configuration
@@ -172,17 +156,7 @@ class ConfigurableJwtExtractor(
         val payloadMap = payloadToMap(payload)
 
         // Extract core properties using new DSL
-        val userId = try {
-            val userIdStr = extractUserIdNew(payloadMap) ?: throw UserContextExtractionException("No userId claim found in JWT")
-            val userIdInt = userIdStr.toIntOrNull() ?: throw UserContextExtractionException("userId claim is not a valid integer")
-            // Security: Validate userId is positive
-            if (userIdInt <= 0) {
-                throw UserContextExtractionException("userId must be positive: $userIdInt")
-            }
-            userIdInt
-        } catch (e: NumberFormatException) {
-            throw UserContextExtractionException("userId claim cannot be converted to integer: ${e.message}", e)
-        }
+        val userId = extractUserIdNew(payloadMap) ?: throw UserContextExtractionException("No userId claim found in JWT")
         
         val email = extractEmailNew(payloadMap)?.let { emailValue ->
             // Security: Validate email format and length
@@ -194,49 +168,34 @@ class ConfigurableJwtExtractor(
                 throw UserContextExtractionException("Invalid email format: $emailStr")
             }
             emailStr
-        } ?: throw UserContextExtractionException("No email claim found in JWT") 
+        } // Email is optional - not in standard Auth0 access tokens 
         
         val tenantId = try {
-            extractTenantIdNew(payloadMap) ?: config.defaultTenantId ?: throw UserContextExtractionException("No tenantId claim found in JWT and no default configured")
+            extractTenantIdNew(payloadMap) ?: config.defaultTenantId
         } catch (e: NumberFormatException) {
             throw UserContextExtractionException("tenantId claim cannot be converted to integer: ${e.message}", e)
         }
         
         val roles = extractRolesNew(payloadMap) ?: emptySet()
+        
+        // Extract additional common properties
+        val organizationId = extractOrganizationIdNew(payloadMap)
+        val branchId = extractBranchIdNew(payloadMap)
+        val departmentId = extractDepartmentIdNew(payloadMap)
+        val permissions = extractPermissionsNew(payloadMap)
 
-        // Extract additional properties using object mappings
+        // Extract additional properties
         val additionalProperties = mutableMapOf<String, Any?>()
         
-        // Handle object mappings (inline object definitions)
-        config.objectMappings.forEach { (objectName, objectMapping) ->
-            try {
-                val objectProps = mutableMapOf<String, Any?>()
-                objectMapping.properties.forEach { (propName, propMapping) ->
-                    try {
-                        propMapping.extract(payloadMap)?.let { value ->
-                            objectProps[propName] = value
-                            additionalProperties[propName] = value  // Also add to root level
-                        }
-                    } catch (e: Exception) {
-                        // Log property extraction error but continue with other properties
-                    }
-                }
-                if (objectProps.isNotEmpty()) {
-                    additionalProperties[objectName] = objectProps
-                }
-            } catch (e: Exception) {
-                // Log object mapping error but continue with other objects
-            }
-        }
         
-        // Handle custom properties (serializable objects)
-        config.customProperties.forEach { mapping ->
+        // Handle custom claims defined via customClaim DSL
+        config.customClaims.forEach { (name, mapping) ->
             try {
                 mapping.extract(payloadMap)?.let { value ->
-                    additionalProperties[mapping.propertyName] = value
+                    additionalProperties[name] = value
                 }
             } catch (e: Exception) {
-                // Log serializable property extraction error but continue
+                // Log custom claim extraction error but continue
             }
         }
 
@@ -245,6 +204,10 @@ class ConfigurableJwtExtractor(
             tenantId = tenantId,
             email = email,
             roles = roles,
+            organizationId = organizationId,
+            branchId = branchId,
+            departmentId = departmentId,
+            permissions = permissions,
             properties = additionalProperties
         )
     }
@@ -271,8 +234,17 @@ class ConfigurableJwtExtractor(
     }
     
     // DSL extraction methods
-    private fun extractUserIdNew(payloadMap: Map<String, Any?>): String? {
-        return config.userIdMapping?.extract(payloadMap) as? String
+    private fun extractUserIdNew(payloadMap: Map<String, Any?>): String {
+        val mapping = config.userIdMapping ?: throw UserContextExtractionException("userId mapping not configured")
+        val extracted = mapping.extract(payloadMap) ?: throw UserContextExtractionException("No userId found in JWT")
+        
+        // Convert to String as required by UserContext
+        return when (extracted) {
+            is String -> extracted
+            is Int -> extracted.toString()
+            is Long -> extracted.toString()
+            else -> extracted.toString()
+        }
     }
     
     private fun extractEmailNew(payloadMap: Map<String, Any?>): String? {
@@ -310,6 +282,38 @@ class ConfigurableJwtExtractor(
                 }
                 setOf(roles)
             }
+            else -> null
+        }
+    }
+    
+    private fun extractOrganizationIdNew(payloadMap: Map<String, Any?>): Int? {
+        return config.organizationIdMapping?.extract(payloadMap) as? Int
+    }
+    
+    private fun extractBranchIdNew(payloadMap: Map<String, Any?>): Int? {
+        return config.branchIdMapping?.extract(payloadMap) as? Int
+    }
+    
+    private fun extractDepartmentIdNew(payloadMap: Map<String, Any?>): String? {
+        return config.departmentIdMapping?.extract(payloadMap) as? String
+    }
+    
+    private fun extractPermissionsNew(payloadMap: Map<String, Any?>): Set<String>? {
+        return when (val permissions = config.permissionsMapping?.extract(payloadMap)) {
+            is List<*> -> {
+                val stringPermissions = permissions.filterIsInstance<String>()
+                // Security: Validate permission names and count
+                if (stringPermissions.size > 100) {
+                    throw UserContextExtractionException("Too many permissions: ${stringPermissions.size}")
+                }
+                stringPermissions.forEach { permission ->
+                    if (permission.length > 200) {
+                        throw UserContextExtractionException("Permission name too long: $permission")
+                    }
+                }
+                stringPermissions.toSet()
+            }
+            is String -> setOf(permissions)
             else -> null
         }
     }

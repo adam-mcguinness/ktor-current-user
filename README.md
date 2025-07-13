@@ -30,12 +30,13 @@ class OrderService {
 ## Features
 
 - 🔒 **Thread-safe user context** management across coroutines
-- 🎯 **Type-safe DSL** for JWT claim mapping with nested object support
+- 🎯 **Type-safe DSL** for JWT claim mapping
 - ⚡ **Zero boilerplate** - access user context anywhere without passing parameters
 - 🧩 **Easy integration** with existing Ktor authentication
 - 🏗️ **Automatic availability** throughout entire request lifecycle
-- 📦 **Clean object-oriented configuration** for complex JWT structures
-- 🔧 **Flexible claim extraction** from any JWT structure
+- 🌐 **URL-based claim support** for Auth0 and similar providers
+- 🔧 **Built-in common properties** like organizationId, branchId, permissions
+- 🎨 **Custom claims** via simple DSL for any additional properties
 
 ## Key Architectural Benefits
 
@@ -206,7 +207,7 @@ withContext(CurrentUser.asContextElement()) {
 
 ## Configuration
 
-The plugin uses a clean, object-oriented DSL for mapping JWT claims to user context:
+The plugin provides a type-safe DSL for mapping JWT claims to user context properties:
 
 ### Basic Configuration
 
@@ -222,60 +223,27 @@ install(CurrentUserPlugin) {
 }
 ```
 
-### Nested Object Configuration
+### Custom Claims Configuration
 
-You have two approaches for handling complex nested objects:
+Use the `customClaim()` method to map any JWT claim to your UserContext:
 
-#### Approach 1: Inline Object Definition
 ```kotlin
 install(CurrentUserPlugin) {
     extraction {
+        // Standard claims
         userId = string("sub")
         email = string("email")
         
-        // Define object structure inline
-        appMetadata = object("app_metadata") {
-            tenantId = int("tenant")
-            branchId = int("branch")
-            department = string("department")
-            permissions = list<String>("permissions")
-        }
-    }
-}
-```
-
-#### Approach 2: Serializable Objects
-For this approach, add kotlinx-serialization to your dependencies:
-```kotlin
-dependencies {
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.0")
-}
-```
-
-```kotlin
-@Serializable
-data class UserMetadata(
-    @SerializedName("email_full")
-    val email: String,
-    @SerializedName("user_scope")
-    val scope: String,
-    @SerializedName("user_permissions")
-    val permissions: List<String>
-)
-
-install(CurrentUserPlugin) {
-    extraction {
-        userId = string("sub")
-        email = string("email")
+        // Built-in properties with URL-based claims
+        tenantId = int("https://api.lumisync.io/tenantId")
+        organizationId = int("https://api.lumisync.io/organizationId")
+        branchId = int("https://api.lumisync.io/branchId")
+        departmentId = string("https://api.lumisync.io/departmentId")
+        permissions = list<String>("https://api.lumisync.io/permissions")
         
-        // Map entire object - @SerializedName handles field mapping
-        userMetadata = serializable<UserMetadata>("user_metadata")
-        
-        // Can mix with inline definitions
-        appMetadata = object("app_metadata") {
-            tenantId = int("tenant")
-            branchId = int("branch")
-        }
+        // Additional custom claims via customClaim()
+        customClaim("region", string("https://api.lumisync.io/region"))
+        customClaim("features", list<String>("https://api.lumisync.io/features"))
     }
 }
 ```
@@ -285,42 +253,43 @@ install(CurrentUserPlugin) {
 ```kotlin
 install(CurrentUserPlugin) {
     extraction {
+        // Standard Auth0 claims
         userId = string("sub")
         email = string("email")
         
-        // Auth0 namespaced claims
-        appMetadata = object("https://myapp.com/app_metadata") {
-            tenantId = int("tenant")
-            branchId = int("branch") 
-            department = string("dept")
-            permissions = list<String>("permissions")
-        }
+        // Built-in properties with Auth0 namespaced claims
+        tenantId = int("https://myapp.com/tenantId")
+        organizationId = int("https://myapp.com/organizationId")
+        permissions = list<String>("https://myapp.com/permissions")
+        branchId = int("https://myapp.com/branchId")
+        departmentId = string("https://myapp.com/department")
         
-        userMetadata = object("https://myapp.com/user_metadata") {
-            scope = string("scope")
-            email = string("recovery_email")
-        }
+        // Custom claims for app-specific data
+        customClaim("subscriptionPlan", string("https://myapp.com/plan"))
     }
 }
 ```
 
-### Mixed Direct and Nested Claims
+### Simple and URL-based Claims
 
 ```kotlin
 install(CurrentUserPlugin) {
     extraction {
-        // Direct claims at JWT root level
+        // Standard JWT claims
         userId = string("sub")
         email = string("email")
-        tenantId = int("tenant_id")  // Direct claim
-        roles = list<String>("roles")  // Direct claim
+        roles = list<String>("roles")
         
-        // Nested claims in app_metadata
-        appMetadata = object("app_metadata") {
-            branchId = int("branch_id")
-            department = string("department")
-            permissions = list<String>("custom_permissions")
-        }
+        // Built-in properties with simple claim names
+        tenantId = int("tenant_id")
+        organizationId = int("org_id")
+        branchId = int("branch_id")
+        departmentId = string("department")
+        permissions = list<String>("permissions")
+        
+        // Additional custom claims
+        customClaim("region", string("region"))
+        customClaim("costCenter", string("cost_center"))
     }
 }
 ```
@@ -336,25 +305,44 @@ class UserService {
         val userId: Int = CurrentUser.id
         val tenantId: Int = CurrentUser.tenantId
         val email: String = CurrentUser.email
+        val roles: Set<String> = CurrentUser.roles
         
-        // Inline object properties accessible by name
-        val branchId: Int = CurrentUser.context.require("branchId")
-        val department: String = CurrentUser.context.require("department")
-        val permissions: List<String> = CurrentUser.context.get("permissions") ?: emptyList()
+        // Built-in optional fields (null-safe)
+        val organizationId: Int? = CurrentUser.organizationId
+        val branchId: Int? = CurrentUser.branchId
+        val departmentId: String? = CurrentUser.departmentId
+        val permissions: Set<String>? = CurrentUser.permissions
         
-        // Serializable objects accessible as raw data
-        val userMetadataRaw = CurrentUser.context.get<Map<String, Any?>>("userMetadata")
-        
-        // Deserialize to your data class using kotlinx.serialization
-        val userMetadata: UserPreferences? = userMetadataRaw?.let { 
-            Json.decodeFromString<UserPreferences>(Json.encodeToString(it))
+        // Permission checks
+        if (CurrentUser.hasPermission("write:orders")) {
+            // User can write orders
         }
         
-        // Property delegation still works
-        val scope: String? by CurrentUser.context
+        // Custom claims via properties map
+        val region: String? = CurrentUser.context.get("region")
+        val features: List<String> = CurrentUser.context.get("features") ?: emptyList()
+        
+        // Property delegation also works
+        val costCenter: String? by CurrentUser.context
     }
 }
 ```
+
+### Built-in Properties
+
+The UserContext includes these built-in properties for common use cases:
+
+**Required properties:**
+- `userId: Int` - The user's unique identifier
+- `tenantId: Int` - The tenant identifier for multi-tenant apps
+- `email: String` - The user's email address
+- `roles: Set<String>` - Set of role names
+
+**Optional properties:**
+- `organizationId: Int?` - Organization identifier
+- `branchId: Int?` - Branch/location identifier
+- `departmentId: String?` - Department identifier
+- `permissions: Set<String>?` - Granular permissions
 
 ### Type-Safe Property Types
 
@@ -364,25 +352,8 @@ The DSL supports these property types:
 - `int(claimPath)` - Maps to Int  
 - `boolean(claimPath)` - Maps to Boolean
 - `list<T>(claimPath)` - Maps to List<T>
-- `serializable<T>(claimPath)` - Maps entire object to custom type T
-- `object(claimPath) { ... }` - Inline object definition
+- `customClaim(name, property)` - Maps any claim to a named property
 
-### Benefits of Serializable Objects
-
-Using `serializable<T>()` with `@SerializedName` annotations provides:
-
-✅ **Clean Property Names** - Use camelCase in Kotlin, snake_case in JSON  
-✅ **Type Safety** - Full compile-time type checking  
-✅ **IDE Support** - Autocomplete and refactoring  
-✅ **Maintainability** - Changes to data structure are centralized  
-✅ **Flexibility** - Handle complex nested structures easily
-
-```kotlin
-// JWT contains: "user_metadata": { "email_full": "user@example.com", "user_scope": "admin" }
-// Your Kotlin code gets clean property names:
-val email = userMetadata.email        // Not userMetadata.email_full
-val scope = userMetadata.scope        // Not userMetadata.user_scope
-```
 
 ### Default Values
 
@@ -434,8 +405,7 @@ fun `test document service authorization`() = runBlocking {
         userId = 123,
         tenantId = 456,
         email = "test@example.com",
-        roles = setOf("USER"),
-        properties = emptyMap()
+        roles = setOf("USER")
     )
     
     withUserContext(testUser) {
@@ -456,7 +426,8 @@ fun `test admin service`() = runBlocking {
         tenantId = 100,
         email = "admin@example.com",
         roles = setOf("USER", "ADMIN"),
-        properties = emptyMap()
+        organizationId = 50,
+        permissions = setOf("read:all", "write:all")
     )
     
     withUserContext(adminUser) {
@@ -467,6 +438,91 @@ fun `test admin service`() = runBlocking {
 }
 ```
 
+### Custom User Context Extractor
+
+For authentication systems other than JWT, you can implement a custom `UserContextExtractor`:
+
+```kotlin
+class SessionBasedExtractor : UserContextExtractor {
+    override fun extract(principal: Any): UserContext {
+        // Cast to your authentication principal type
+        val sessionPrincipal = principal as SessionPrincipal
+        
+        return UserContext(
+            userId = sessionPrincipal.userId,
+            tenantId = sessionPrincipal.tenantId,
+            email = sessionPrincipal.email,
+            roles = sessionPrincipal.roles.toSet(),
+            organizationId = sessionPrincipal.orgId,
+            permissions = sessionPrincipal.permissions?.toSet()
+        )
+    }
+}
+
+// Configure the plugin to use your custom extractor
+install(CurrentUserPlugin) {
+    extractor = SessionBasedExtractor()
+}
+```
+
+### Configuration Callbacks
+
+The plugin supports callbacks for monitoring and debugging:
+
+```kotlin
+install(CurrentUserPlugin) {
+    extraction {
+        userId = string("sub")
+        email = string("email")
+        tenantId = int("tenant_id")
+    }
+    
+    // Called when context is successfully extracted
+    onContextExtracted = { context ->
+        logger.info("User ${context.email} authenticated")
+    }
+    
+    // Called when extraction fails
+    onExtractionError = { error ->
+        logger.error("Failed to extract user context", error)
+    }
+    
+    // Throw exception if accessing CurrentUser without authentication
+    requireAuthentication = true
+}
+```
+
+
+## Logging
+
+The plugin doesn't include its own logger to avoid forcing a specific logging framework on your application. Instead, it provides callbacks that integrate with your existing logging setup:
+
+```kotlin
+install(CurrentUserPlugin) {
+    extraction {
+        userId = string("sub")
+        email = string("email")
+        tenantId = int("tenant_id")
+    }
+    
+    // Use your application's logger
+    val logger = LoggerFactory.getLogger("UserAuth")
+    
+    onContextExtracted = { context ->
+        logger.info("User authenticated: ${context.email} (ID: ${context.userId})")
+    }
+    
+    onExtractionError = { error ->
+        logger.error("Failed to extract user context: ${error.message}", error)
+    }
+}
+```
+
+This approach allows you to:
+- Use any logging framework (SLF4J, Logback, Log4j2, etc.)
+- Control log levels and formatting
+- Include additional context or metrics
+- Integrate with your application's logging configuration
 
 ## Common Use Cases
 
@@ -531,23 +587,67 @@ class DocumentRepository {
 
 ## API Reference
 
-### CurrentUser
+### CurrentUser Properties
 
-- `CurrentUser.id` - User ID
-- `CurrentUser.tenantId` - Tenant ID  
-- `CurrentUser.email` - Email address
-- `CurrentUser.roles` - User roles
+**Core Properties (always available):**
+- `CurrentUser.id` - User ID (Int)
+- `CurrentUser.tenantId` - Tenant ID (Int)
+- `CurrentUser.email` - Email address (String)
+- `CurrentUser.roles` - User roles (Set<String>)
+
+**Optional Built-in Properties:**
+- `CurrentUser.organizationId` - Organization ID (Int?)
+- `CurrentUser.branchId` - Branch ID (Int?)
+- `CurrentUser.departmentId` - Department ID (String?)
+- `CurrentUser.permissions` - User permissions (Set<String>?)
+
+**Context Access:**
+- `CurrentUser.context` - Full UserContext object
+- `CurrentUser.contextOrNull` - UserContext or null if not authenticated
+- `CurrentUser.isAuthenticated` - Check if user is authenticated
+
+### CurrentUser Methods
+
+**Role Checking:**
 - `CurrentUser.hasRole(role)` - Check for specific role
+- `CurrentUser.hasAnyRole(vararg roles)` - Check for any of the roles
+- `CurrentUser.hasAllRoles(vararg roles)` - Check for all roles
+
+**Permission Checking:**
+- `CurrentUser.hasPermission(permission)` - Check for specific permission
+- `CurrentUser.hasAnyPermission(vararg permissions)` - Check for any permission
+- `CurrentUser.hasAllPermissions(vararg permissions)` - Check for all permissions
+
+**Authorization Helpers:**
 - `CurrentUser.owns(resourceOwnerId)` - Check resource ownership
-- `CurrentUser.requireRole(role)` - Require specific role or throw
+- `CurrentUser.canAccessTenant(resourceTenantId)` - Check tenant access
+- `CurrentUser.requireRole(role, message)` - Require role or throw
+- `CurrentUser.requireOwnership(resourceOwnerId, message)` - Require ownership or throw
 
 ### Configuration DSL
 
+**Property Types:**
 - `string(claimPath)` - Map string claim
 - `int(claimPath)` - Map integer claim
+- `boolean(claimPath)` - Map boolean claim
 - `list<T>(claimPath)` - Map list claim
-- `serializable<T>(claimPath)` - Map complex object
-- `object(claimPath) { ... }` - Inline object definition
+
+**Custom Claims:**
+- `customClaim(name, property)` - Map any claim to a custom property
+
+**Example:**
+```kotlin
+extraction {
+    // Built-in properties
+    userId = string("sub")
+    tenantId = int("https://api.example.com/tenantId")
+    permissions = list<String>("permissions")
+    
+    // Custom claims
+    customClaim("region", string("region"))
+    customClaim("features", list<String>("features"))
+}
+```
 
 ## Important Notes
 

@@ -11,38 +11,93 @@ object CurrentUser {
      * @throws IllegalStateException if no user context is available
      */
     val context: UserContext
-        get() = contextOrNull
-            ?: throw IllegalStateException("No user context available. Ensure the request is authenticated.")
+        get() {
+            val ctx = contextOrNull
+            if (ctx == null) {
+                println("[CurrentUser] ERROR: Attempted to access context but it's NULL!")
+                throw IllegalStateException("No user context available. Ensure the request is authenticated.")
+            }
+            println("[CurrentUser] Context accessed: User(id=${ctx.userId}, email=${ctx.email})")
+            return ctx
+        }
 
     /**
      * Get the current user context or null if not authenticated
      */
     val contextOrNull: UserContext?
-        get() = getCurrentContext()
+        get() {
+            val ctx = getCurrentContext()
+            println("[CurrentUser] contextOrNull accessed: ${ctx?.let { "User(id=${it.userId}, email=${it.email})" } ?: "NULL"}")
+            return ctx
+        }
 
     /**
      * Check if a user context exists
      */
     val isAuthenticated: Boolean
-        get() = contextOrNull != null
+        get() {
+            val isAuth = contextOrNull != null
+            println("[CurrentUser] isAuthenticated check: $isAuth")
+            return isAuth
+        }
 
     // Convenience properties
-    val id: Int get() = context.userId
-    val tenantId: Int get() = context.tenantId
-    val email: String get() = context.email
-    val roles: Set<String> get() = context.roles
+    val id: String get() {
+        println("[CurrentUser] id property accessed")
+        return context.userId
+    }
+    val tenantId: Int? get() {
+        println("[CurrentUser] tenantId property accessed")
+        return context.tenantId
+    }
+    val email: String? get() {
+        println("[CurrentUser] email property accessed")
+        return context.email
+    }
+    val roles: Set<String> get() {
+        println("[CurrentUser] roles property accessed")
+        return context.roles
+    }
+    val organizationId: Int? get() = context.organizationId
+    val branchId: Int? get() = context.branchId
+    val departmentId: String? get() = context.departmentId
+    val permissions: Set<String>? get() = context.permissions
 
     // Convenience methods
-    fun hasRole(role: String) = context.hasRole(role)
+    fun hasRole(role: String): Boolean {
+        println("[CurrentUser] hasRole('$role') called")
+        val result = context.hasRole(role)
+        println("[CurrentUser] hasRole('$role') = $result")
+        return result
+    }
     fun hasAnyRole(vararg roles: String) = context.hasAnyRole(*roles)
     fun hasAllRoles(vararg roles: String) = context.hasAllRoles(*roles)
+    fun hasPermission(permission: String) = context.hasPermission(permission)
+    fun hasAnyPermission(vararg permissions: String) = context.hasAnyPermission(*permissions)
+    fun hasAllPermissions(vararg permissions: String) = context.hasAllPermissions(*permissions)
     
     // Authorization convenience methods (delegating to extension functions)
-    fun owns(resourceOwnerId: Int) = context.owns(resourceOwnerId)
+    fun owns(resourceOwnerId: Int): Boolean {
+        println("[CurrentUser] owns($resourceOwnerId) called")
+        val result = context.owns(resourceOwnerId)
+        println("[CurrentUser] owns($resourceOwnerId) = $result")
+        return result
+    }
+    fun owns(resourceOwnerId: String): Boolean {
+        println("[CurrentUser] owns($resourceOwnerId) called")
+        val result = context.owns(resourceOwnerId)
+        println("[CurrentUser] owns($resourceOwnerId) = $result")
+        return result
+    }
     fun canAccessTenant(resourceTenantId: Int) = context.canAccessTenant(resourceTenantId)
-    fun requireRole(role: String, message: String = "Missing required role: $role") = context.requireRole(role, message)
+    fun requireRole(role: String, message: String = "Missing required role: $role") {
+        println("[CurrentUser] requireRole('$role') called")
+        context.requireRole(role, message)
+        println("[CurrentUser] requireRole('$role') passed")
+    }
     fun requireAnyRole(vararg roles: String, message: String = "Missing required roles: ${roles.joinToString()}") = context.requireAnyRole(*roles, message = message)
     fun requireOwnership(resourceOwnerId: Int, message: String = "You don't own this resource") = context.requireOwnership(resourceOwnerId, message)
+    fun requireOwnership(resourceOwnerId: String, message: String = "You don't own this resource") = context.requireOwnership(resourceOwnerId, message)
 
     /**
      * Execute a block with the current user context.
@@ -73,6 +128,7 @@ object CurrentUser {
 
     // Internal methods for plugin use
     internal fun set(context: UserContext?) {
+        println("[CurrentUser] Setting user context: ${context?.let { "User(id=${it.userId}, email=${it.email})" } ?: "NULL"}")
         if (context != null) {
             contextThreadLocal.set(context)
         } else {
@@ -87,6 +143,8 @@ object CurrentUser {
      * ThreadLocal + asContextElement() ensures proper propagation across coroutines
      */
     private fun getCurrentContext(): UserContext? {
-        return contextThreadLocal.get()
+        val ctx = contextThreadLocal.get()
+        // Don't log here to avoid infinite recursion with contextOrNull
+        return ctx
     }
 }

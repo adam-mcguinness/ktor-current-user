@@ -7,129 +7,45 @@ data class StringProperty(val claimPath: String)
 data class IntProperty(val claimPath: String)
 data class BooleanProperty(val claimPath: String)
 data class ListProperty<T>(val claimPath: String, val elementType: kotlin.reflect.KClass<*>)
-data class SerializableProperty<T>(val claimPath: String, val type: kotlin.reflect.KClass<*>)
 
-/**
- * Object mapping for nested structures
- */
-@ConsistentCopyVisibility
-data class ObjectMapping internal constructor(
-    val claimPath: String,
-    internal val properties: Map<String, PropertyMapping>
-)
-
-/**
- * Builder for object mappings
- */
-class ObjectMappingBuilder(private val claimPath: String) {
-    private val properties = mutableMapOf<String, PropertyMapping>()
-
-    var email: StringProperty? = null
-        set(value) {
-            field = value
-            if (value != null) {
-                properties["email"] = SimplePropertyMapping("email", "${claimPath}.${value.claimPath}", String::class)
-            }
-        }
-
-    var scope: StringProperty? = null
-        set(value) {
-            field = value
-            if (value != null) {
-                properties["scope"] = SimplePropertyMapping("scope", "${claimPath}.${value.claimPath}", String::class)
-            }
-        }
-
-    var permissions: ListProperty<String>? = null
-        set(value) {
-            field = value
-            if (value != null) {
-                properties["permissions"] = SimplePropertyMapping("permissions", "${claimPath}.${value.claimPath}", List::class)
-            }
-        }
-
-    var tenantId: IntProperty? = null
-        set(value) {
-            field = value
-            if (value != null) {
-                properties["tenantId"] = SimplePropertyMapping("tenantId", "${claimPath}.${value.claimPath}", Int::class)
-            }
-        }
-
-    var branchId: IntProperty? = null
-        set(value) {
-            field = value
-            if (value != null) {
-                properties["branchId"] = SimplePropertyMapping("branchId", "${claimPath}.${value.claimPath}", Int::class)
-            }
-        }
-
-    var department: StringProperty? = null
-        set(value) {
-            field = value
-            if (value != null) {
-                properties["department"] = SimplePropertyMapping("department", "${claimPath}.${value.claimPath}", String::class)
-            }
-        }
-
-    // Generic property setter for custom properties
-    fun setProperty(name: String, property: StringProperty) {
-        properties[name] = SimplePropertyMapping(name, "${claimPath}.${property.claimPath}", String::class)
-    }
-
-    fun setProperty(name: String, property: IntProperty) {
-        properties[name] = SimplePropertyMapping(name, "${claimPath}.${property.claimPath}", Int::class)
-    }
-
-    fun setProperty(name: String, property: BooleanProperty) {
-        properties[name] = SimplePropertyMapping(name, "${claimPath}.${property.claimPath}", Boolean::class)
-    }
-
-    fun <T> setProperty(name: String, property: ListProperty<T>) {
-        properties[name] = SimplePropertyMapping(name, "${claimPath}.${property.claimPath}", List::class)
-    }
-
-    fun build(): ObjectMapping = ObjectMapping(claimPath, properties.toMap())
-}
 
 /**
  * Configuration for UserContext extraction
  */
 class UserContextExtractionConfiguration {
-    // Core property mappings with defaults for standard JWT claims
+    // Core property mappings with defaults for standard Auth0 access token claims
     internal var userIdMapping: PropertyMapping? = SimplePropertyMapping("userId", "sub", String::class)
-    internal var emailMapping: PropertyMapping? = SimplePropertyMapping("email", "email", String::class)
+    internal var emailMapping: PropertyMapping? = null  // Not in standard Auth0 access tokens
     internal var tenantIdMapping: PropertyMapping? = null
-    internal var rolesMapping: PropertyMapping? = SimplePropertyMapping("roles", "roles", List::class)
+    internal var rolesMapping: PropertyMapping? = null  // Auth0 uses "permissions" not "roles"
     
-    // Object mappings for nested structures
-    internal val objectMappings = mutableMapOf<String, ObjectMapping>()
+    // Additional common property mappings
+    internal var organizationIdMapping: PropertyMapping? = null
+    internal var branchIdMapping: PropertyMapping? = null
+    internal var departmentIdMapping: PropertyMapping? = null
+    internal var permissionsMapping: PropertyMapping? = null
 
     /**
      * Default tenant ID if not found in claims
      */
-    var defaultTenantId: Int? = 1
+    var defaultTenantId: Int? = null
 
     // Type-safe property assignment methods
     fun string(claimPath: String): StringProperty = StringProperty(claimPath)
     fun int(claimPath: String): IntProperty = IntProperty(claimPath)
     fun boolean(claimPath: String): BooleanProperty = BooleanProperty(claimPath)
     inline fun <reified T> list(claimPath: String): ListProperty<T> = ListProperty(claimPath, T::class)
-    inline fun <reified T> serializable(claimPath: String): SerializableProperty<T> = SerializableProperty(claimPath, T::class)
-    
-    fun `object`(claimPath: String, block: ObjectMappingBuilder.() -> Unit): ObjectMapping {
-        val builder = ObjectMappingBuilder(claimPath)
-        builder.block()
-        val mapping = builder.build()
-        objectMappings[claimPath] = mapping
-        return mapping
-    }
 
     // Core property assignments
-    var userId: StringProperty? = null
+    var userId: Any? = null
         set(value) {
             field = value
-            userIdMapping = value?.let { SimplePropertyMapping("userId", it.claimPath, String::class) }
+            userIdMapping = when (value) {
+                is StringProperty -> SimplePropertyMapping("userId", value.claimPath, String::class)
+                is IntProperty -> SimplePropertyMapping("userId", value.claimPath, Int::class)
+                null -> null
+                else -> throw IllegalArgumentException("userId must be string() or int()")
+            }
         }
 
     var email: StringProperty? = null
@@ -150,37 +66,55 @@ class UserContextExtractionConfiguration {
             rolesMapping = value?.let { SimplePropertyMapping("roles", it.claimPath, List::class) }
         }
 
-    // Object property assignments - can be either ObjectMapping or SerializableProperty
-    private var _userMetadata: Any? = null
-    var userMetadata: Any?
-        get() = _userMetadata
+    var organizationId: IntProperty? = null
         set(value) {
-            _userMetadata = value
-            when (value) {
-                is ObjectMapping -> objectMappings["userMetadata"] = value
-                is SerializableProperty<*> -> {
-                    val mapping = SerializablePropertyMapping("userMetadata", value.claimPath)
-                    customProperties.add(mapping)
-                }
-            }
+            field = value
+            organizationIdMapping = value?.let { SimplePropertyMapping("organizationId", it.claimPath, Int::class) }
         }
 
-    private var _appMetadata: Any? = null
-    var appMetadata: Any?
-        get() = _appMetadata
+    var branchId: IntProperty? = null
         set(value) {
-            _appMetadata = value
-            when (value) {
-                is ObjectMapping -> objectMappings["appMetadata"] = value
-                is SerializableProperty<*> -> {
-                    val mapping = SerializablePropertyMapping("appMetadata", value.claimPath)
-                    customProperties.add(mapping)
-                }
-            }
+            field = value
+            branchIdMapping = value?.let { SimplePropertyMapping("branchId", it.claimPath, Int::class) }
         }
 
-    // Additional custom properties
-    internal val customProperties = mutableListOf<PropertyMapping>()
+    var departmentId: StringProperty? = null
+        set(value) {
+            field = value
+            departmentIdMapping = value?.let { SimplePropertyMapping("departmentId", it.claimPath, String::class) }
+        }
+
+    var permissions: ListProperty<String>? = null
+        set(value) {
+            field = value
+            permissionsMapping = value?.let { SimplePropertyMapping("permissions", it.claimPath, List::class) }
+        }
+
+
+    
+    // Map for custom claim definitions
+    internal val customClaims = mutableMapOf<String, PropertyMapping>()
+    
+    /**
+     * Define a custom claim that will be available in UserContext.properties
+     * @param name The name to use in UserContext.properties
+     * @param property The property definition (string, int, boolean, list, etc.)
+     */
+    fun customClaim(name: String, property: StringProperty) {
+        customClaims[name] = SimplePropertyMapping(name, property.claimPath, String::class)
+    }
+    
+    fun customClaim(name: String, property: IntProperty) {
+        customClaims[name] = SimplePropertyMapping(name, property.claimPath, Int::class)
+    }
+    
+    fun customClaim(name: String, property: BooleanProperty) {
+        customClaims[name] = SimplePropertyMapping(name, property.claimPath, Boolean::class)
+    }
+    
+    fun <T> customClaim(name: String, property: ListProperty<T>) {
+        customClaims[name] = SimplePropertyMapping(name, property.claimPath, List::class)
+    }
 }
 
 /**

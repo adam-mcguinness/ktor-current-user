@@ -8,7 +8,7 @@ class UserContextSecurityTest {
     @Test
     fun `test suspend function context propagation`() = runBlocking {
         val testUser = UserContext(
-            userId = 123,
+            userId = "123",
             tenantId = 456,
             email = "test@example.com",
             roles = setOf("USER"),
@@ -17,7 +17,7 @@ class UserContextSecurityTest {
 
         withUserContext(testUser) {
             // Test direct access
-            assertEquals(123, CurrentUser.id)
+            assertEquals("123", CurrentUser.id)
             
             // Test access in suspend function
             suspendingFunction()
@@ -32,7 +32,7 @@ class UserContextSecurityTest {
 
     private suspend fun suspendingFunction() {
         delay(1) // Force suspension point
-        assertEquals(123, CurrentUser.id)
+        assertEquals("123", CurrentUser.id)
         assertEquals("test@example.com", CurrentUser.email)
     }
 
@@ -44,8 +44,8 @@ class UserContextSecurityTest {
 
     @Test
     fun `test context isolation between coroutines`() = runBlocking {
-        val user1 = UserContext(1, 10, "user1@example.com", setOf("USER"), emptyMap())
-        val user2 = UserContext(2, 20, "user2@example.com", setOf("ADMIN"), emptyMap())
+        val user1 = UserContext("1", 10, "user1@example.com", setOf("USER"))
+        val user2 = UserContext("2", 20, "user2@example.com", setOf("ADMIN"))
 
         val job1 = async {
             withUserContext(user1) {
@@ -62,7 +62,7 @@ class UserContextSecurityTest {
         }
 
         val results = awaitAll(job1, job2)
-        assertEquals(listOf(1, 2), results)
+        assertEquals(listOf("1", "2"), results)
     }
 
     @Test
@@ -85,11 +85,11 @@ class UserContextSecurityTest {
 
     @Test
     fun `test context cleanup after exception`() = runBlocking {
-        val testUser = UserContext(123, 456, "test@example.com", setOf("USER"), emptyMap())
+        val testUser = UserContext("123", 456, "test@example.com", setOf("USER"))
 
         assertFailsWith<RuntimeException> {
             withUserContext(testUser) {
-                assertEquals(123, CurrentUser.id)
+                assertEquals("123", CurrentUser.id)
                 throw RuntimeException("Test exception")
             }
         }
@@ -100,10 +100,10 @@ class UserContextSecurityTest {
 
     @Test
     fun `test memory cleanup in finally block`() = runBlocking {
-        val testUser = UserContext(123, 456, "test@example.com", setOf("USER"), emptyMap())
+        val testUser = UserContext("123", 456, "test@example.com", setOf("USER"))
 
         withUserContext(testUser) {
-            assertEquals(123, CurrentUser.id)
+            assertEquals("123", CurrentUser.id)
         }
 
         // Context should be null after withUserContext block

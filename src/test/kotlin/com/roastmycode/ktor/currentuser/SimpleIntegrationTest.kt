@@ -8,14 +8,14 @@ class SimpleIntegrationTest {
     @Test
     fun `test UserContext data class creation`() {
         val userContext = UserContext(
-            userId = 123,
+            userId = "123",
             tenantId = 456,
             email = "test@example.com",
             roles = setOf("USER", "ADMIN"),
             properties = mapOf("custom" to "value")
         )
 
-        assertEquals(123, userContext.userId)
+        assertEquals("123", userContext.userId)
         assertEquals(456, userContext.tenantId)
         assertEquals("test@example.com", userContext.email)
         assertEquals(setOf("USER", "ADMIN"), userContext.roles)
@@ -25,7 +25,7 @@ class SimpleIntegrationTest {
     @Test
     fun `test UserContext convenience methods`() {
         val userContext = UserContext(
-            userId = 123,
+            userId = "123",
             tenantId = 456,
             email = "test@example.com",
             roles = setOf("USER", "ADMIN"),
@@ -36,14 +36,14 @@ class SimpleIntegrationTest {
         assertTrue(userContext.hasRole("ADMIN"))
         assertFalse(userContext.hasRole("SUPER_ADMIN"))
         
-        assertTrue(userContext.owns(123))
-        assertFalse(userContext.owns(999))
+        assertTrue(userContext.owns("123"))
+        assertFalse(userContext.owns("999"))
     }
 
     @Test
     fun `test UserContext requires role throws on missing role`() {
         val userContext = UserContext(
-            userId = 123,
+            userId = "123",
             tenantId = 456,
             email = "test@example.com",
             roles = setOf("USER"),
@@ -62,7 +62,7 @@ class SimpleIntegrationTest {
     @Test
     fun `test withUserContext sets and cleans up context`() = runBlocking {
         val testUser = UserContext(
-            userId = 789,
+            userId = "789",
             tenantId = 101,
             email = "context@test.com",
             roles = setOf("TEST"),
@@ -75,7 +75,7 @@ class SimpleIntegrationTest {
         withUserContext(testUser) {
             // Context should be available inside block
             assertTrue(CurrentUser.isAuthenticated)
-            assertEquals(789, CurrentUser.id)
+            assertEquals("789", CurrentUser.id)
             assertEquals(101, CurrentUser.tenantId)
             assertEquals("context@test.com", CurrentUser.email)
             assertTrue(CurrentUser.hasRole("TEST"))
