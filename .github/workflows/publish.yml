@@ -37,5 +37,4 @@ jobs:
           export ORG_GRADLE_PROJECT_signingInMemoryKey=$(echo "${{ secrets.ORG_GRADLE_PROJECT_SIGNINGINMEMORYKEY }}" | base64 --decode)
           
           # Uploads the artifacts to Maven Central and then publishes them
-          ./gradlew publishAllPublicationsToMavenCentralRepository --no-daemon
           ./gradlew publishToMavenCentral --no-configuration-cache
