@@ -3,32 +3,23 @@
 [![Maven Central](https://img.shields.io/maven-central/v/com.roastmycode/ktor-current-user.svg?label=Maven%20Central)](https://search.maven.org/search?q=g:%22com.roastmycode%22%20AND%20a:%22ktor-current-user%22)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-A lightweight Ktor plugin that provides thread-safe access to JWT user information anywhere in your application without passing it through method parameters.
+A Ktor plugin that provides thread-safe access to JWT user information anywhere in your application without passing it through method parameters.
 
 ```kotlin
 // Before: Passing user context everywhere
 class OrderService {
-    fun createOrder(request: OrderRequest, userId: String, tenantId: Int): Order {
-        return orderRepository.create(request, userId, tenantId)
+    fun createOrder(request: OrderRequest, userId: String): Order {
+        return orderRepository.create(request, userId)
     }
 }
 
-// After: Clean APIs with automatic context
+// After: Access user context directly
 class OrderService {
     fun createOrder(request: OrderRequest): Order {
-        return orderRepository.create(request, CurrentUser.userId, CurrentUser.tenantId)
+        return orderRepository.create(request, CurrentUser.userId)
     }
 }
 ```
-
-## Features
-
-- 🔒 **Thread-safe context** management across coroutines
-- ⚡ **Zero boilerplate** - access user info anywhere without passing parameters
-- 🎯 **JWT claim extraction** - userId, roles, permissions from standard JWT claims
-- 🧩 **Custom metadata** - deserialize app_metadata and access as properties
-- 🏗️ **Automatic lifecycle** - context flows through entire request
-- 🔧 **Property delegation** - create clean extension properties for metadata fields
 
 ## Installation
 
@@ -40,15 +31,13 @@ dependencies {
 }
 ```
 
-**Requirements:** Kotlin 1.8+, Ktor 3.0+, Java 11+
+Requirements: Kotlin 1.8+, Ktor 3.0+, Java 11+
 
 ## Quick Start
 
-### 1. Install the plugin
-
-**Minimal setup (uses standard JWT claims):**
 ```kotlin
 import com.roastmycode.ktor.currentuser.CurrentUserPlugin
+import com.roastmycode.ktor.currentuser.CurrentUser
 
 fun Application.module() {
     install(Authentication) {
@@ -57,20 +46,13 @@ fun Application.module() {
         }
     }
 
-    install(CurrentUserPlugin)  // Uses "sub", "roles", "permissions"
+    install(CurrentUserPlugin)
 }
-```
-
-### 2. Access user context anywhere
-
-```kotlin
-import com.roastmycode.ktor.currentuser.CurrentUser
 
 routing {
     authenticate("auth-jwt") {
         get("/profile") {
-            val profile = userService.getCurrentUserProfile()
-            call.respond(profile)
+            call.respond(mapOf("userId" to CurrentUser.userId))
         }
     }
 }
@@ -88,174 +70,195 @@ class UserService {
 
 ## How It Works
 
-The plugin uses Kotlin's coroutine context elements combined with ThreadLocal storage:
+The plugin intercepts authenticated requests and stores the ApplicationCall and configuration in ThreadLocal storage. The context is propagated through coroutines using `asContextElement()` and automatically cleaned up after the request completes.
 
-1. **Authentication**: Request comes in with valid JWT token
-2. **Interception**: Plugin intercepts the request in the Call phase
-3. **Context Storage**: ApplicationCall and config stored in ThreadLocal
-4. **Automatic Propagation**: Context flows through all coroutines in the request
-5. **Cleanup**: ThreadLocal automatically cleaned up after request completes
-
-This means `CurrentUser` is available anywhere in code executing within the request scope - routes, services, repositories, or any layer.
-
-### Thread Safety
-
-The plugin ensures thread safety by:
-- Using `ThreadLocal` for storage, preventing leakage between concurrent requests
-- Properly propagating context through `asContextElement()` for coroutine suspension points
-- Automatically cleaning up context in a `finally` block to prevent memory leaks
+This allows `CurrentUser` to be accessed from anywhere in code executing within the request scope: routes, services, repositories, or any layer.
 
 ## API Reference
 
-### CurrentUser Properties
+### Properties
 
 ```kotlin
-// User ID from JWT "sub" claim
+// User ID extracted from JWT "sub" claim (default)
 val userId: String
 
-// Roles from JWT "roles" claim
+// Roles extracted from JWT "roles" claim (default), empty set if missing
 val roles: Set<String>
 
-// Permissions from JWT "permissions" claim
+// Permissions extracted from JWT "permissions" claim (default), empty set if missing
 val permissions: Set<String>
 ```
 
-### CurrentUser Methods
+### Methods
 
 ```kotlin
-// Check if user has the configured admin role
+// Check if user has the configured admin role or permission
 fun isAdmin(): Boolean
+
+// Check if userId matches the provided subject
+// Optionally throws error based on throwError config
+fun owns(sub: String): Boolean
+
+// Check if user owns the resource or is admin
+fun ownsOrAdmin(sub: String): Boolean
+
+// Deserialize app_metadata JWT claim to the specified type
+inline fun <reified T : Any> appMetadata(): T
+```
+
+## Configuration
+
+### Full Configuration DSL
+
+All configuration options with their defaults:
+
+```kotlin
+install(CurrentUserPlugin) {
+    // Authorization behavior when owns() fails
+    throwError = false  // If true, throws exception when owns() returns false
+    errorMessage = "You are not authorized to access this."
+
+    // JWT claim extraction
+    extraction {
+        user = "sub"  // JWT claim path for user ID
+        rolesClaimPath = "roles"  // JWT claim path for roles
+        permissionsClaimPath = "permissions"  // JWT claim path for permissions
+        json = Json  // JSON instance for deserializing app_metadata
+        metadata<YourMetadataClass>()  // Optional: register metadata class
+    }
+
+    // Admin detection configuration
+    adminConfig {
+        adminSource = AdminSource.ROLE  // Use ROLE or PERMISSION
+        adminRole = "admin"  // Role to check when adminSource = ROLE
+        adminPermission = "admin:super"  // Permission to check when adminSource = PERMISSION
+    }
+}
+```
+
+### Minimal Configuration
+
+Using all defaults:
+
+```kotlin
+install(CurrentUserPlugin)
+```
+
+### Custom JWT Claim Paths
+
+If your JWT uses non-standard claim names:
+
+```kotlin
+install(CurrentUserPlugin) {
+    extraction {
+        user = "userId"
+        rolesClaimPath = "user_roles"
+        permissionsClaimPath = "user_permissions"
+    }
+}
+```
+
+### Admin Detection via Permission
+
+Check admin status using a permission instead of a role:
+
+```kotlin
+install(CurrentUserPlugin) {
+    adminConfig {
+        adminSource = AdminSource.PERMISSION
+        adminPermission = "admin:all"
+    }
+}
+```
+
+### Ownership Validation
+
+Automatically throw errors when ownership checks fail:
+
+```kotlin
+install(CurrentUserPlugin) {
+    throwError = true
+    errorMessage = "Access denied: resource ownership required"
+}
+
+// Now owns() throws exception instead of returning false
+class DocumentService {
+    fun getDocument(ownerId: String): Document {
+        CurrentUser.owns(ownerId)  // Throws if userId != ownerId
+        return documentRepository.findByOwner(ownerId)
+    }
+}
 ```
 
 ## Working with app_metadata
 
-If your JWT includes an `app_metadata` claim with structured data, you can access it cleanly using property delegation.
+If your JWT includes an `app_metadata` claim with structured data, you can deserialize it to a typed object.
 
-### Step 1: Define your metadata class
+### Define Metadata Class
 
 ```kotlin
 @Serializable
 data class AppMetadata(
     val tenantId: Int,
-    val organizationId: Int,
-    val department: String
+    val organizationId: Int
 )
 ```
 
-### Step 2: Configure the metadata class
+### Configure Metadata (Optional)
 
 ```kotlin
 install(CurrentUserPlugin) {
-    metadata<AppMetadata>()
+    extraction {
+        metadata<AppMetadata>()
+    }
 }
 ```
 
-### Step 3: Create extension properties
+### Option 1: Direct Access
 
-Create these once in your application code:
+```kotlin
+class DocumentService {
+    fun getDocuments(): List<Document> {
+        val metadata = CurrentUser.appMetadata<AppMetadata>()
+        return docRepository.findByTenant(metadata.tenantId)
+    }
+}
+```
+
+### Option 2: Property Delegation
+
+Create extension properties once:
 
 ```kotlin
 import com.roastmycode.ktor.currentuser.currentUserProperty
 
 val CurrentUser.tenantId: Int by currentUserProperty<AppMetadata, Int> { it.tenantId }
 val CurrentUser.organizationId: Int by currentUserProperty<AppMetadata, Int> { it.organizationId }
-val CurrentUser.department: String by currentUserProperty<AppMetadata, String> { it.department }
 ```
 
-### Step 4: Use directly anywhere
+Then use them anywhere:
 
 ```kotlin
 class DocumentService {
     fun getDocuments(): List<Document> {
-        // Clean, direct access to metadata properties!
         return docRepository.findByTenant(CurrentUser.tenantId)
     }
-
-    fun createDocument(request: CreateDocRequest): Document {
-        return Document(
-            title = request.title,
-            tenantId = CurrentUser.tenantId,
-            organizationId = CurrentUser.organizationId,
-            createdBy = CurrentUser.userId
-        )
-    }
 }
 ```
 
-### Alternative: Direct appMetadata() call
+## Examples
 
-For one-off access without creating extension properties:
-
-```kotlin
-class ReportService {
-    fun generateReport(): Report {
-        val metadata = CurrentUser.appMetadata<AppMetadata>()
-        return Report(
-            tenantId = metadata.tenantId,
-            organizationId = metadata.organizationId
-        )
-    }
-}
-```
-
-But extension properties are preferred for properties you access frequently.
-
-## Configuration
-
-### Basic Configuration (Standard JWT)
+### Multi-Tenant Application
 
 ```kotlin
-install(CurrentUserPlugin) {
-    // These are the defaults - standard JWT claim names
-    rolesClaimPath = "roles"
-    permissionsClaimPath = "permissions"
-    adminRole = "ADMIN"
-
-    // Optional: configure metadata class for property delegation
-    metadata<AppMetadata>()
-}
-```
-
-### Custom Claim Paths
-
-If your JWT uses non-standard claim names, you can customize them:
-
-```kotlin
-install(CurrentUserPlugin) {
-    // Custom claim paths (if your JWT provider uses different names)
-    rolesClaimPath = "user_roles"
-    permissionsClaimPath = "user_permissions"
-    adminRole = "SUPER_ADMIN"
-}
-```
-
-**Note:** The default claim paths follow standard JWT conventions. Most JWT providers use these standard names.
-
-## Common Use Cases
-
-### Multi-Tenant Applications
-
-```kotlin
-// Define metadata
 @Serializable
-data class AppMetadata(val tenantId: Int, val organizationId: Int)
+data class AppMetadata(val tenantId: Int)
 
-// Create extensions (once)
 val CurrentUser.tenantId: Int by currentUserProperty<AppMetadata, Int> { it.tenantId }
-val CurrentUser.organizationId: Int by currentUserProperty<AppMetadata, Int> { it.organizationId }
 
-// Use everywhere
 class ProductService {
     fun getProducts(): List<Product> {
         return productRepository.findByTenantId(CurrentUser.tenantId)
-    }
-
-    fun createProduct(request: CreateProductRequest): Product {
-        return Product(
-            name = request.name,
-            price = request.price,
-            tenantId = CurrentUser.tenantId
-        )
     }
 }
 ```
@@ -264,17 +267,8 @@ class ProductService {
 
 ```kotlin
 class AdminService {
-    fun getAllUsers(): List<User> {
-        if (!CurrentUser.isAdmin()) {
-            throw ForbiddenException("Admin access required")
-        }
-        return userRepository.findAll()
-    }
-
     fun deleteUser(userId: String) {
-        require(CurrentUser.roles.contains("ADMIN")) {
-            "Admin role required"
-        }
+        require(CurrentUser.isAdmin()) { "Admin role required" }
         userRepository.delete(userId)
     }
 }
@@ -290,74 +284,45 @@ class DocumentService {
         }
         documentRepository.delete(id)
     }
+}
+```
 
-    fun updateDocument(id: Int, request: UpdateDocRequest) {
-        if (!CurrentUser.permissions.contains("write:documents")) {
-            throw ForbiddenException("Missing permission: write:documents")
+### Ownership Checks
+
+```kotlin
+class DocumentService {
+    fun updateDocument(id: Int, ownerId: String, request: UpdateRequest) {
+        if (!CurrentUser.ownsOrAdmin(ownerId)) {
+            throw ForbiddenException("Not authorized")
         }
         documentRepository.update(id, request)
     }
 }
 ```
 
-### Audit Logging
+## When CurrentUser is Available
+
+CurrentUser works in any code executing within an authenticated request:
+- Route handlers inside `authenticate` blocks
+- Services called from authenticated routes
+- Repositories/DAOs called from services
+- Any code in the request coroutine scope
+- Suspend functions called within the request
+
+CurrentUser is NOT available:
+- In background jobs or scheduled tasks
+- In code running outside the request context
+- After launching a new coroutine with a different scope
+
+For background tasks, explicitly pass the data:
 
 ```kotlin
-class AuditInterceptor {
-    fun <T> auditOperation(operation: String, block: () -> T): T {
-        val startTime = System.currentTimeMillis()
-        return try {
-            val result = block()
-            logger.info(
-                "User ${CurrentUser.userId} performed $operation " +
-                "in ${System.currentTimeMillis() - startTime}ms"
-            )
-            result
-        } catch (e: Exception) {
-            logger.error(
-                "User ${CurrentUser.userId} failed $operation: ${e.message}"
-            )
-            throw e
-        }
-    }
-}
-```
-
-## Important Notes
-
-### When CurrentUser is Available
-
-- ✅ In route handlers within `authenticate` blocks
-- ✅ In services called from authenticated routes
-- ✅ In repositories/DAOs called from services
-- ✅ In any code executing within the request coroutine scope
-- ✅ In suspend functions called within the request
-
-### When CurrentUser is NOT Available
-
-- ❌ In background jobs or scheduled tasks
-- ❌ In code running outside the request context
-- ❌ After launching a new coroutine with a different scope
-
-For background tasks that need user context, explicitly pass the data:
-
-```kotlin
-// In your route or service
 val userId = CurrentUser.userId
-val tenantId = CurrentUser.tenantId
-
-// Launch background job with explicit context
 backgroundScope.launch {
     // CurrentUser NOT available here
-    processDataForUser(userId, tenantId)
+    processDataForUser(userId)
 }
 ```
-
-### Missing Claims
-
-- If `roles` or `permissions` claims are missing/null, properties return empty sets
-- If `sub` claim is missing, `userId` throws `InvalidJwtException`
-- If `app_metadata` claim is missing and you access it, throws `InvalidJwtException`
 
 ## Error Handling
 
@@ -367,20 +332,12 @@ The plugin throws these exceptions:
 - `InvalidJwtException` - Required JWT claim missing or invalid
 - `NoCallContextException` - Accessing CurrentUser outside request context
 - `MetadataDeserializationException` - Failed to deserialize app_metadata
+- `CurrentUserException` - Base exception class for all plugin errors
 
-## Security & Production Ready
-
-✅ **Input Validation**: JWT claims validated for type and format
-✅ **Memory Safety**: Automatic ThreadLocal cleanup prevents leaks
-✅ **Thread Isolation**: Each request has isolated context
-✅ **Minimal Overhead**: < 0.1ms per request
-✅ **Cloud Native**: Works in containerized environments
-
-## Summary
-
-This plugin eliminates parameter passing for user context in Ktor applications. Access JWT user information anywhere in your code without threading it through method signatures.
-
-Perfect for multi-tenant SaaS, microservices, and clean architecture implementations.
+Missing claim behavior:
+- If `roles` or `permissions` claims are missing/null, returns empty set
+- If `sub` claim (or configured user claim) is missing, throws `InvalidJwtException`
+- If `app_metadata` is missing when accessed, throws `InvalidJwtException`
 
 ## License
 
