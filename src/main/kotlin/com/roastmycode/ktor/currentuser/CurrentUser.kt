@@ -60,12 +60,39 @@ object CurrentUser {
         return list
     }
 
-//    private fun isAdmin(): Boolean {
-//        logger.debug("Checking if admin is enabled")
-//        val principal = getCall().principal<JWTPrincipal>()
-//            ?: throw AuthenticationRequiredException("No JWT principal found. Ensure the user is authenticated.")
-//        val getConfig.adminConfig.
-//    }
+    fun isAdmin(): Boolean {
+        logger.debug("Checking if user is admin")
+        val adminConfig = getConfig().adminConfig
+        if (adminConfig == null) {
+            logger.debug("No adminConfig set, returning false")
+            return false
+        }
+
+        return when (adminConfig.adminSource) {
+            AdminSource.ROLE -> {
+                val adminRole = adminConfig.adminRole
+                if (adminRole == null) {
+                    logger.debug("adminRole is null, returning false")
+                    false
+                } else {
+                    val isAdmin = roles.contains(adminRole)
+                    logger.debug("Checking role '{}': {}", adminRole, isAdmin)
+                    isAdmin
+                }
+            }
+            AdminSource.PERMISSION -> {
+                val adminPerm = adminConfig.adminPermission
+                if (adminPerm == null) {
+                    logger.debug("adminPermission is null, returning false")
+                    false
+                } else {
+                    val isAdmin = permissions.contains(adminPerm)
+                    logger.debug("Checking permission '{}': {}", adminPerm, isAdmin)
+                    isAdmin
+                }
+            }
+        }
+    }
 
     val userId: String
         get() = extractStringClaim(getConfig().extraction.user)
@@ -94,10 +121,10 @@ object CurrentUser {
         return false
     }
 
-//    fun ownsOrAdmin(sub: String): Boolean {
-//        logger.debug("Checking ownership for sub: {}", sub)
-//
-//    }
+    fun ownsOrAdmin(sub: String): Boolean {
+        logger.debug("Checking ownership or admin for sub: {}", sub)
+        return owns(sub) || isAdmin()
+    }
 
     @OptIn(InternalSerializationApi::class)
     fun <T : Any> appMetadata(klass: KClass<T>): T {
