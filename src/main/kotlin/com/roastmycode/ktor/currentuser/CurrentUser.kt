@@ -63,10 +63,7 @@ object CurrentUser {
     fun isAdmin(): Boolean {
         logger.debug("Checking if user is admin")
         val adminConfig = getConfig().adminConfig
-        if (adminConfig == null) {
-            logger.debug("No adminConfig set, returning false")
-            return false
-        }
+            ?: throw IllegalStateException("Admin functionality not configured. Add an adminConfig block to your CurrentUserPlugin configuration to use isAdmin().")
 
         return when (adminConfig.adminSource) {
             AdminSource.ROLE -> {

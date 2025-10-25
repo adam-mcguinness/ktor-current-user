@@ -15,7 +15,18 @@ class CurrentUserConfiguration{
 
     var extraction: Extraction = Extraction()
 
-    var adminConfig: AdminConfig? = AdminConfig()
+    var adminConfig: AdminConfig? = null
+
+    fun extraction(block: Extraction.() -> Unit) {
+        extraction.apply(block)
+    }
+
+    fun adminConfig(block: AdminConfig.() -> Unit) {
+        if (adminConfig == null) {
+            adminConfig = AdminConfig()
+        }
+        adminConfig?.apply(block)
+    }
 
 }
 
@@ -41,5 +52,5 @@ class AdminConfig {
 }
 
 inline fun <reified T : Any> CurrentUserConfiguration.metadata() {
-    metadata(T::class)
+    extraction.metadata(T::class)
 }
