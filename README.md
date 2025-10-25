@@ -1,6 +1,6 @@
 # Ktor Current User Plugin
 
-[![Maven Central](https://img.shields.io/maven-central/v/com.roastmycode/ktor-current-user.svg?label=Maven%20Central)](https://search.maven.org/search?q=g:%22com.roastmycode%22%20AND%20a:%22ktor-current-user%22)
+[![Maven Central](https://img.shields.io/maven-central/v/com.roastmycode/ktor-current-user.svg?label=Maven%20Central)](https://central.sonatype.com/artifact/com.roastmycode/ktor-current-user)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
 A Ktor plugin that provides thread-safe access to JWT user information anywhere in your application without passing it through method parameters.
@@ -27,7 +27,7 @@ Add the dependency to your `build.gradle.kts`:
 
 ```kotlin
 dependencies {
-    implementation("com.roastmycode:ktor-current-user:1.0.0")
+    implementation("com.roastmycode:ktor-current-user:0.3.0")
 }
 ```
 
