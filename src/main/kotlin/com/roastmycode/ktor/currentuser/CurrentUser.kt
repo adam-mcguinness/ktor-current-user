@@ -28,26 +28,105 @@ object CurrentUser {
         return configThreadLocal.get()
             ?: throw NoCallContextException("No configuration in context. Ensure CurrentUserPlugin is installed properly.")
     }
-    
-    val userId: String
-        get() {
-            logger.debug("Accessing userId")
-            val principal = getCall().principal<JWTPrincipal>()
-            if (principal == null) {
-                logger.warn("No JWT principal found when accessing userId")
-                throw AuthenticationRequiredException("No JWT principal found. Ensure the user is authenticated.")
-            }
-            
-            val subject = principal.payload?.subject
-            if (subject == null) {
-                logger.error("JWT token missing required 'sub' claim")
-                throw InvalidJwtException("User ID (sub) claim not found in JWT token.")
-            }
-            
-            logger.debug("Retrieved userId: {}", subject)
-            return subject
+
+    private fun extractStringClaim(claimPath: String): String {
+        logger.debug("Extracting string claim from '{}'", claimPath)
+        val principal = getCall().principal<JWTPrincipal>()
+            ?: throw AuthenticationRequiredException("No JWT principal found. Ensure the user is authenticated.")
+
+        val claim = principal.payload.getClaim(claimPath)
+            ?: throw InvalidJwtException("Claim '$claimPath' not found in JWT token.")
+
+        val value = claim.asString()
+            ?: throw InvalidJwtException("Claim '$claimPath' is not a valid string.")
+
+        logger.debug("Retrieved string claim '{}': {}", claimPath, value)
+        return value
+    }
+
+    private fun extractListClaim(claimPath: String): Set<String> {
+        logger.debug("Extracting list claim from '{}'", claimPath)
+        val principal = getCall().principal<JWTPrincipal>()
+            ?: throw AuthenticationRequiredException("No JWT principal found. Ensure the user is authenticated.")
+
+        val claim = principal.payload.getClaim(claimPath)
+        if (claim == null || claim.isNull) {
+            logger.debug("No claim found at path '{}', returning empty set", claimPath)
+            return emptySet()
         }
-    
+
+        val list = claim.asList(String::class.java).toSet()
+        logger.debug("Retrieved {} items from claim '{}'", list.size, claimPath)
+        return list
+    }
+
+    fun isAdmin(): Boolean {
+        logger.debug("Checking if user is admin")
+        val adminConfig = getConfig().adminConfig
+            ?: throw IllegalStateException("Admin functionality not configured. Add an adminConfig block to your CurrentUserPlugin configuration to use isAdmin().")
+
+        return when (adminConfig.adminSource) {
+            AdminSource.ROLE -> {
+                val adminRole = adminConfig.adminRole
+                if (adminRole == null) {
+                    logger.debug("adminRole is null, returning false")
+                    false
+                } else {
+                    val isAdmin = roles.contains(adminRole)
+                    logger.debug("Checking role '{}': {}", adminRole, isAdmin)
+                    isAdmin
+                }
+            }
+            AdminSource.PERMISSION -> {
+                val adminPerm = adminConfig.adminPermission
+                if (adminPerm == null) {
+                    logger.debug("adminPermission is null, returning false")
+                    false
+                } else {
+                    val isAdmin = permissions.contains(adminPerm)
+                    logger.debug("Checking permission '{}': {}", adminPerm, isAdmin)
+                    isAdmin
+                }
+            }
+            null -> {
+                logger.debug("adminSource is null, returning false")
+                false
+            }
+        }
+    }
+
+    val userId: String
+        get() = extractStringClaim(getConfig().extraction.user)
+
+    val roles: Set<String>
+        get() = extractListClaim(getConfig().extraction.rolesClaimPath)
+
+    val permissions: Set<String>
+        get() = extractListClaim(getConfig().extraction.permissionsClaimPath)
+
+    fun owns(sub: String): Boolean {
+        logger.debug("Checking ownership for sub: {}", sub)
+        if (sub == userId) {
+            logger.debug("User owns resource")
+            return true
+        }
+
+        // User doesn't own the resource
+        val config = getConfig()
+        if (config.throwError) {
+            logger.warn("Authorization failed: user does not own resource")
+            throw AuthenticationRequiredException(config.errorMessage)
+        }
+
+        logger.debug("User does not own resource, returning false")
+        return false
+    }
+
+    fun ownsOrAdmin(sub: String): Boolean {
+        logger.debug("Checking ownership or admin for sub: {}", sub)
+        return owns(sub) || isAdmin()
+    }
+
     @OptIn(InternalSerializationApi::class)
     fun <T : Any> appMetadata(klass: KClass<T>): T {
         logger.debug("Accessing appMetadata as {}", klass.simpleName)
@@ -75,7 +154,7 @@ object CurrentUser {
                     // It's already a JSON string
                     val jsonString = appMetadataClaim.asString()!!
                     logger.trace("Deserializing app_metadata from string: {}", jsonString)
-                    getConfig().json.decodeFromString(klass.serializer() as kotlinx.serialization.KSerializer<T>, jsonString)
+                    getConfig().extraction.json.decodeFromString(klass.serializer() as kotlinx.serialization.KSerializer<T>, jsonString)
                 }
                 else -> {
                     // It's a JSON object, deserialize directly from the map
@@ -105,7 +184,7 @@ object CurrentUser {
                         }
                     }
                     logger.trace("Deserializing app_metadata from object: {}", jsonObject)
-                    getConfig().json.decodeFromJsonElement(klass.serializer() as kotlinx.serialization.KSerializer<T>, jsonObject)
+                    getConfig().extraction.json.decodeFromJsonElement(klass.serializer() as kotlinx.serialization.KSerializer<T>, jsonObject)
                 }
             }
         } catch (e: Exception) {
@@ -122,13 +201,13 @@ object CurrentUser {
     @OptIn(InternalSerializationApi::class)
     internal fun getMetadata(): Any {
         val config = getConfig()
-        val metadataClass = config.metadataClass
+        val metadataClass = config.extraction.metadataClass
             ?: throw IllegalStateException("No metadata class configured. Use metadata<T>() in plugin configuration.")
             
         val principal = getCall().principal<JWTPrincipal>()
             ?: throw AuthenticationRequiredException("No JWT principal found. Ensure the user is authenticated.")
             
-        val appMetadataClaim = principal.payload?.getClaim("app_metadata")
+        val appMetadataClaim = principal.payload.getClaim("app_metadata")
             ?: throw InvalidJwtException("app_metadata claim not found in JWT token.")
         
         // Handle both string and object formats
@@ -139,7 +218,7 @@ object CurrentUser {
                 }
                 appMetadataClaim.asString() != null -> {
                     // It's already a JSON string
-                    config.json.decodeFromString(metadataClass.serializer() as kotlinx.serialization.KSerializer<Any>, appMetadataClaim.asString()!!)
+                    config.extraction.json.decodeFromString(metadataClass.serializer() as kotlinx.serialization.KSerializer<Any>, appMetadataClaim.asString()!!)
                 }
                 else -> {
                     // It's a JSON object, deserialize directly from the map
@@ -168,7 +247,7 @@ object CurrentUser {
                             }
                         }
                     }
-                    config.json.decodeFromJsonElement(metadataClass.serializer() as kotlinx.serialization.KSerializer<Any>, jsonObject)
+                    config.extraction.json.decodeFromJsonElement(metadataClass.serializer() as kotlinx.serialization.KSerializer<Any>, jsonObject)
                 }
             }
         } catch (e: Exception) {
