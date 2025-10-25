@@ -88,6 +88,10 @@ object CurrentUser {
                     isAdmin
                 }
             }
+            null -> {
+                logger.debug("adminSource is null, returning false")
+                false
+            }
         }
     }
 

@@ -46,9 +46,9 @@ class Extraction {
 }
 
 class AdminConfig {
-    var adminSource: AdminSource = AdminSource.ROLE
-    var adminRole: String? = "admin"
-    var adminPermission: String? = "admin:super"
+    var adminSource: AdminSource? = null
+    var adminRole: String? = null
+    var adminPermission: String? = null
 }
 
 inline fun <reified T : Any> CurrentUserConfiguration.metadata() {
