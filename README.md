@@ -115,23 +115,27 @@ All configuration options with their defaults:
 ```kotlin
 install(CurrentUserPlugin) {
     // Authorization behavior when owns() fails
-    throwError = false  // If true, throws exception when owns() returns false
-    errorMessage = "You are not authorized to access this."
+    throwError = false  // Default: false
+    errorMessage = "You are not authorized to access this."  // Default error message
 
-    // JWT claim extraction
+    // JWT claim extraction (defaults shown)
     extraction {
         user = "sub"  // JWT claim path for user ID
         rolesClaimPath = "roles"  // JWT claim path for roles
         permissionsClaimPath = "permissions"  // JWT claim path for permissions
-        json = Json  // JSON instance for deserializing app_metadata
-        metadata<YourMetadataClass>()  // Optional: register metadata class
+        json = Json  // JSON serializer for app_metadata
     }
 
-    // Admin detection configuration
+    // Optional: register metadata class for property delegation
+    metadata<YourMetadataClass>()
+
+    // OPTIONAL: Admin detection configuration
+    // Only include this block if you need isAdmin() functionality
+    // Without this block, isAdmin() will throw an error
     adminConfig {
-        adminSource = AdminSource.ROLE  // Use ROLE or PERMISSION
-        adminRole = "admin"  // Role to check when adminSource = ROLE
-        adminPermission = "admin:super"  // Permission to check when adminSource = PERMISSION
+        adminSource = AdminSource.ROLE  // Default: ROLE (options: ROLE or PERMISSION)
+        adminRole = "admin"  // Default: "admin" (checked when adminSource = ROLE)
+        adminPermission = "admin:super"  // Default: "admin:super" (checked when adminSource = PERMISSION)
     }
 }
 ```
@@ -208,9 +212,7 @@ data class AppMetadata(
 
 ```kotlin
 install(CurrentUserPlugin) {
-    extraction {
-        metadata<AppMetadata>()
-    }
+    metadata<AppMetadata>()
 }
 ```
 
@@ -291,11 +293,20 @@ class DocumentService {
 
 ```kotlin
 class DocumentService {
-    fun updateDocument(id: Int, ownerId: String, request: UpdateRequest) {
-        if (!CurrentUser.ownsOrAdmin(ownerId)) {
+    fun getDocument(document: Document): Document {
+        // Check if current user owns this document
+        if (!CurrentUser.owns(document.userId)) {
             throw ForbiddenException("Not authorized")
         }
-        documentRepository.update(id, request)
+        return document
+    }
+
+    fun updateDocument(document: Document, request: UpdateRequest) {
+        // Allow if user owns it OR is admin
+        if (!CurrentUser.ownsOrAdmin(document.userId)) {
+            throw ForbiddenException("Not authorized")
+        }
+        documentRepository.update(document.id, request)
     }
 }
 ```
