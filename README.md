@@ -27,7 +27,7 @@ Add the dependency to your `build.gradle.kts`:
 
 ```kotlin
 dependencies {
-    implementation("com.roastmycode:ktor-current-user:0.3.0")
+    implementation("com.roastmycode:ktor-current-user:0.4.0")
 }
 ```
 
@@ -80,22 +80,30 @@ This allows `CurrentUser` to be accessed from anywhere in code executing within 
 
 ```kotlin
 // User ID extracted from JWT "sub" claim (default)
-val userId: String
+// Returns null when accessed from async/background context
+val userId: String?
 
 // Roles extracted from JWT "roles" claim (default), empty set if missing
+// Returns empty set when accessed from async/background context
 val roles: Set<String>
 
 // Permissions extracted from JWT "permissions" claim (default), empty set if missing
+// Returns empty set when accessed from async/background context
 val permissions: Set<String>
 ```
 
 ### Methods
 
 ```kotlin
+// Check if CurrentUser context is available (has JWT token in current thread)
+fun hasContext(): Boolean
+
 // Check if user has the configured admin role or permission
+// Returns true when no context available (for backwards compatibility)
 fun isAdmin(): Boolean
 
 // Check if userId matches the provided subject
+// Returns true when no context available (for backwards compatibility)
 // Optionally throws error based on throwError config
 fun owns(sub: String): Boolean
 
@@ -103,7 +111,8 @@ fun owns(sub: String): Boolean
 fun ownsOrAdmin(sub: String): Boolean
 
 // Deserialize app_metadata JWT claim to the specified type
-inline fun <reified T : Any> appMetadata(): T
+// Returns null when accessed from async/background context
+inline fun <reified T : Any> appMetadata(): T?
 ```
 
 ## Configuration
@@ -325,27 +334,56 @@ CurrentUser is NOT available:
 - In code running outside the request context
 - After launching a new coroutine with a different scope
 
-For background tasks, explicitly pass the data:
+### Handling Async/Background Tasks
+
+Starting from version 0.4.0, CurrentUser handles missing context gracefully instead of throwing exceptions. When accessed from background tasks or async processes without JWT context:
+
+- `userId` returns `null` instead of throwing
+- `roles` and `permissions` return empty sets
+- `appMetadata()` returns `null`
+- `hasContext()` returns `false` to check availability
+
+For background tasks, you can now safely check context:
 
 ```kotlin
-val userId = CurrentUser.userId
 backgroundScope.launch {
-    // CurrentUser NOT available here
-    processDataForUser(userId)
+    // Check if context is available
+    if (CurrentUser.hasContext()) {
+        val userId = CurrentUser.userId
+        processDataForUser(userId)
+    } else {
+        // Handle missing context case
+        // Or explicitly pass data from the request context
+    }
+}
+```
+
+Or continue to explicitly pass the data:
+
+```kotlin
+val userId = CurrentUser.userId  // Get it while in request context
+backgroundScope.launch {
+    processDataForUser(userId)  // Use the captured value
 }
 ```
 
 ## Error Handling
 
-The plugin throws these exceptions:
+The plugin throws these exceptions when JWT context is available but invalid:
 
-- `AuthenticationRequiredException` - No JWT principal found
+- `AuthenticationRequiredException` - No JWT principal found when context exists
 - `InvalidJwtException` - Required JWT claim missing or invalid
-- `NoCallContextException` - Accessing CurrentUser outside request context
 - `MetadataDeserializationException` - Failed to deserialize app_metadata
 - `CurrentUserException` - Base exception class for all plugin errors
 
-Missing claim behavior:
+Behavior when accessed from async/background context (no JWT available):
+- `userId` returns `null` (no exception thrown)
+- `roles` and `permissions` return empty sets
+- `appMetadata()` returns `null`
+- `isAdmin()` and `owns()` return `true` for backwards compatibility
+- `hasContext()` returns `false`
+
+Missing claim behavior (when JWT context exists):
 - If `roles` or `permissions` claims are missing/null, returns empty set
 - If `sub` claim (or configured user claim) is missing, throws `InvalidJwtException`
 - If `app_metadata` is missing when accessed, throws `InvalidJwtException`

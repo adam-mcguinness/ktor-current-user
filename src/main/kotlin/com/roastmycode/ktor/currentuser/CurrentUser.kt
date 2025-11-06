@@ -19,19 +19,22 @@ internal val configThreadLocal = ThreadLocal<CurrentUserConfiguration>()
 private val logger = LoggerFactory.getLogger("com.roastmycode.ktor.currentuser.CurrentUser")
 
 object CurrentUser {
-    private fun getCall(): ApplicationCall {
+    private fun getCall(): ApplicationCall? {
         return callThreadLocal.get()
-            ?: throw NoCallContextException("No ApplicationCall in context. Ensure CurrentUserPlugin is installed and you're accessing CurrentUser within a request context.")
-    }
-    
-    private fun getConfig(): CurrentUserConfiguration {
-        return configThreadLocal.get()
-            ?: throw NoCallContextException("No configuration in context. Ensure CurrentUserPlugin is installed properly.")
     }
 
-    private fun extractStringClaim(claimPath: String): String {
+    private fun getConfig(): CurrentUserConfiguration? {
+        return configThreadLocal.get()
+    }
+
+    fun hasContext(): Boolean {
+        return callThreadLocal.get() != null && configThreadLocal.get() != null
+    }
+
+    private fun extractStringClaim(claimPath: String): String? {
+        val call = getCall() ?: return null
         logger.debug("Extracting string claim from '{}'", claimPath)
-        val principal = getCall().principal<JWTPrincipal>()
+        val principal = call.principal<JWTPrincipal>()
             ?: throw AuthenticationRequiredException("No JWT principal found. Ensure the user is authenticated.")
 
         val claim = principal.payload.getClaim(claimPath)
@@ -45,8 +48,9 @@ object CurrentUser {
     }
 
     private fun extractListClaim(claimPath: String): Set<String> {
+        val call = getCall() ?: return emptySet()
         logger.debug("Extracting list claim from '{}'", claimPath)
-        val principal = getCall().principal<JWTPrincipal>()
+        val principal = call.principal<JWTPrincipal>()
             ?: throw AuthenticationRequiredException("No JWT principal found. Ensure the user is authenticated.")
 
         val claim = principal.payload.getClaim(claimPath)
@@ -62,7 +66,11 @@ object CurrentUser {
 
     fun isAdmin(): Boolean {
         logger.debug("Checking if user is admin")
-        val adminConfig = getConfig().adminConfig
+
+        // No context means no JWT checking - bypass security check
+        val config = getConfig() ?: return true
+
+        val adminConfig = config.adminConfig
             ?: throw IllegalStateException("Admin functionality not configured. Add an adminConfig block to your CurrentUserPlugin configuration to use isAdmin().")
 
         return when (adminConfig.adminSource) {
@@ -95,24 +103,36 @@ object CurrentUser {
         }
     }
 
-    val userId: String
-        get() = extractStringClaim(getConfig().extraction.user)
+    val userId: String?
+        get() {
+            val config = getConfig() ?: return null
+            return extractStringClaim(config.extraction.user)
+        }
 
     val roles: Set<String>
-        get() = extractListClaim(getConfig().extraction.rolesClaimPath)
+        get() {
+            val config = getConfig() ?: return emptySet()
+            return extractListClaim(config.extraction.rolesClaimPath)
+        }
 
     val permissions: Set<String>
-        get() = extractListClaim(getConfig().extraction.permissionsClaimPath)
+        get() {
+            val config = getConfig() ?: return emptySet()
+            return extractListClaim(config.extraction.permissionsClaimPath)
+        }
 
     fun owns(sub: String): Boolean {
         logger.debug("Checking ownership for sub: {}", sub)
+
+        // No context means no JWT checking - bypass security check
+        val config = getConfig() ?: return true
+
         if (sub == userId) {
             logger.debug("User owns resource")
             return true
         }
 
         // User doesn't own the resource
-        val config = getConfig()
         if (config.throwError) {
             logger.warn("Authorization failed: user does not own resource")
             throw AuthenticationRequiredException(config.errorMessage)
@@ -128,21 +148,25 @@ object CurrentUser {
     }
 
     @OptIn(InternalSerializationApi::class)
-    fun <T : Any> appMetadata(klass: KClass<T>): T {
+    fun <T : Any> appMetadata(klass: KClass<T>): T? {
         logger.debug("Accessing appMetadata as {}", klass.simpleName)
-        
-        val principal = getCall().principal<JWTPrincipal>()
+
+        // No context means no JWT to extract metadata from
+        val call = getCall() ?: return null
+        val config = getConfig() ?: return null
+
+        val principal = call.principal<JWTPrincipal>()
         if (principal == null) {
             logger.warn("No JWT principal found when accessing appMetadata")
             throw AuthenticationRequiredException("No JWT principal found. Ensure the user is authenticated.")
         }
-            
+
         val appMetadataClaim = principal.payload?.getClaim("app_metadata")
         if (appMetadataClaim == null) {
             logger.error("JWT token missing 'app_metadata' claim")
             throw InvalidJwtException("app_metadata claim not found in JWT token.")
         }
-        
+
         // Handle both string and object formats
         return try {
             when {
@@ -154,7 +178,7 @@ object CurrentUser {
                     // It's already a JSON string
                     val jsonString = appMetadataClaim.asString()!!
                     logger.trace("Deserializing app_metadata from string: {}", jsonString)
-                    getConfig().extraction.json.decodeFromString(klass.serializer() as kotlinx.serialization.KSerializer<T>, jsonString)
+                    config.extraction.json.decodeFromString(klass.serializer() as kotlinx.serialization.KSerializer<T>, jsonString)
                 }
                 else -> {
                     // It's a JSON object, deserialize directly from the map
@@ -184,32 +208,35 @@ object CurrentUser {
                         }
                     }
                     logger.trace("Deserializing app_metadata from object: {}", jsonObject)
-                    getConfig().extraction.json.decodeFromJsonElement(klass.serializer() as kotlinx.serialization.KSerializer<T>, jsonObject)
+                    config.extraction.json.decodeFromJsonElement(klass.serializer() as kotlinx.serialization.KSerializer<T>, jsonObject)
                 }
             }
         } catch (e: Exception) {
             logger.error("Failed to deserialize app_metadata to {}: {}", klass.simpleName, e.message)
             throw MetadataDeserializationException(
-                "Failed to deserialize app_metadata to ${klass.simpleName}: ${e.message}", 
+                "Failed to deserialize app_metadata to ${klass.simpleName}: ${e.message}",
                 e
             )
         }
     }
     
-    inline fun <reified T : Any> appMetadata(): T = appMetadata(T::class)
-    
+    inline fun <reified T : Any> appMetadata(): T? = appMetadata(T::class)
+
     @OptIn(InternalSerializationApi::class)
-    internal fun getMetadata(): Any {
-        val config = getConfig()
+    internal fun getMetadata(): Any? {
+        // No context means no JWT to extract metadata from
+        val config = getConfig() ?: return null
+        val call = getCall() ?: return null
+
         val metadataClass = config.extraction.metadataClass
             ?: throw IllegalStateException("No metadata class configured. Use metadata<T>() in plugin configuration.")
-            
-        val principal = getCall().principal<JWTPrincipal>()
+
+        val principal = call.principal<JWTPrincipal>()
             ?: throw AuthenticationRequiredException("No JWT principal found. Ensure the user is authenticated.")
-            
+
         val appMetadataClaim = principal.payload.getClaim("app_metadata")
             ?: throw InvalidJwtException("app_metadata claim not found in JWT token.")
-        
+
         // Handle both string and object formats
         return try {
             when {
@@ -252,22 +279,22 @@ object CurrentUser {
             }
         } catch (e: Exception) {
             throw MetadataDeserializationException(
-                "Failed to deserialize app_metadata to ${metadataClass.simpleName}: ${e.message}", 
+                "Failed to deserialize app_metadata to ${metadataClass.simpleName}: ${e.message}",
                 e
             )
         }
     }
-    
-    internal inline fun <reified T> get(propertyName: String): T {
+
+    internal inline fun <reified T> get(propertyName: String): T? {
         logger.debug("Accessing property '{}' as {}", propertyName, T::class.simpleName)
-        
-        val metadata = getMetadata()
+
+        val metadata = getMetadata() ?: return null
         val property = metadata::class.members.find { it.name == propertyName }
         if (property == null) {
             logger.error("Property '{}' not found in metadata class {}", propertyName, metadata::class.simpleName)
             throw IllegalArgumentException("Property '$propertyName' not found in metadata class ${metadata::class.simpleName}")
         }
-        
+
         return try {
             val value = property.call(metadata) as T
             logger.debug("Retrieved property '{}' with value: {}", propertyName, value)
