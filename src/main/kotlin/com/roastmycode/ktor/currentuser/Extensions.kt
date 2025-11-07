@@ -14,8 +14,8 @@ import kotlin.reflect.KProperty
  */
 inline fun <reified T : Any, R> currentUserProperty(
     crossinline selector: (T) -> R
-): ReadOnlyProperty<Any?, R> = ReadOnlyProperty { _, _ ->
-    selector(CurrentUser.appMetadata<T>())
+): ReadOnlyProperty<Any?, R?> = ReadOnlyProperty { _, _ ->
+    CurrentUser.appMetadata<T>()?.let { selector(it) }
 }
 
 /**
@@ -28,4 +28,4 @@ inline fun <reified T : Any, R> currentUserProperty(
  */
 inline fun <reified T : Any, R> metadata(
     crossinline selector: (T) -> R
-): ReadOnlyProperty<Any?, R> = currentUserProperty(selector)
+): ReadOnlyProperty<Any?, R?> = currentUserProperty(selector)
